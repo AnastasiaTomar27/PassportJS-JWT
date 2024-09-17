@@ -49,14 +49,14 @@ describe("User Auth Routes", () => {
                 });
             
             expect(response.statusCode).toBe(400);
-            expect(response.body.msg).toBe("User already exist with this email");
+            expect(response.body.msg).toBe("User already exists with this email");
         });
     });
 
     describe("POST /api/login", () => {
         it("should login a user and return a JWT token", async () => {
-            const password = await bcrypt.hash('password123', 10);
-            const user = new User({ name: "Login User", email: "login@example.com", password });
+            //const password = await bcrypt.hash('password123', 10);
+            const user = new User({ name: "Login User", email: "login@example.com", password: "password123" });
             await user.save();
 
             const response = await request(app)
@@ -72,8 +72,8 @@ describe("User Auth Routes", () => {
         });
 
         it("should return 400 if credentials are invalid", async () => {
-            const password = await bcrypt.hash('password123', 10);
-            const user = new User({ name: "Login User", email: "login@example.com", password });
+            //const password = await bcrypt.hash('password123', 10);
+            const user = new User({ name: "Login User", email: "login@example.com", password: "password123" });
             await user.save();
 
             const response = await request(app)

@@ -1,6 +1,8 @@
 const User = require('@modelsUser');
+//const { validationResult, matchedData, body } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
 
@@ -46,6 +48,43 @@ exports.userRegister = async (request, response) => {
     
 }
 
+// added proper validation
+
+// exports.userRegister = [
+//         [
+//         body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
+//         body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
+//         body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
+//             .custom(async (value) => {
+//                 const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
+//                 if (!passwordRegex.test(value)) {
+//                     throw new Error(); }
+//                 }).withMessage("User password configuration is invalid")  
+//         ],
+//         async (request, response) => {
+//             const result = validationResult(request);
+    
+//             if (!result.isEmpty()) {
+//                 return response.status(400).send({ errors: result.array() });
+//             }     
+    
+//             const data = matchedData(request);
+//             const newUser = new User(data);
+
+//             try {
+//                 const userAvailable = await User.findOne({username: data.username});
+//                 if (userAvailable) {
+//                     return res.status(400).json({message: "User already registered!"});
+//                 }
+//                 const savedUser = await newUser.save();
+//                 return response.status(201).send(savedUser);
+//             } catch (err) {
+//                 console.log(err);
+//                 return response.status(400);
+//             }
+//         }
+// ]
+
 
 // I don't use passport.js here
 exports.login = async(req, res) => {
@@ -56,12 +95,12 @@ exports.login = async(req, res) => {
         const user = await User.findOne({email})
 
         if(!user) {
-            return res.status(400).json({message: "Access denied!"})
+            return res.status(400).json({msg: "Invalid credentials"})
         }
         const isMatched = await bcrypt.compare(password, user.password);
 
         if(!isMatched) {
-            return res.status(400).json({message: "Access denied!"})
+            return res.status(400).json({msg: "Invalid credentials"})
         }
 
         // if user exists, then make constatnt payload with the user information(user ID and email)
