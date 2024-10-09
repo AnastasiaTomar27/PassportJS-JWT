@@ -1,4 +1,4 @@
-const app = require('../index');
+const app = require('../server');
 const request = require('supertest');
 const mongoose = require('mongoose');
 const User = require('../mongoose/models/user');
@@ -68,7 +68,7 @@ describe("User Auth Routes", () => {
             
             expect(response.statusCode).toBe(200);
             expect(response.body.msg).toBe("Logged in successfully");
-            expect(response.body.token).toBeDefined();
+            expect(response.body.accessToken).toBeDefined();
         });
 
         it("should return 400 if credentials are invalid", async () => {

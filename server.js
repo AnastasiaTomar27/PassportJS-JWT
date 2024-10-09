@@ -11,7 +11,7 @@ const routes = require("@routesUsers");
 app = express();
 
 //const PORT = 8002
-const PORT = process.env.PORT || 8008; 
+const PORT = process.env.PORT || 3000; 
 
 // middleware
 app.use(express.json());
