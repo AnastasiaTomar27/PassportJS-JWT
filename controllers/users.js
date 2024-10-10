@@ -1,5 +1,9 @@
 const User = require('@modelsUser');
-const passport = require('../config/passport');
+const passport = require('passport');
+
+//const passport = require('../config/passport');
+//require('../config/passport')(passport);
+
 const { validationResult, matchedData, body } = require('express-validator');
 //const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -32,7 +36,7 @@ exports.userRegister = [
             try {
                 const userAvailable = await User.findOne({email: data.email});
                 if (userAvailable) {
-                    return res.status(400).json({message: "User already registered!"});
+                    return response.status(400).json({message: "User already registered!"});
                 }
                 const savedUser = await newUser.save();
                 return response.status(201).json({
@@ -67,55 +71,56 @@ exports.login = [
             return response.status(400).send({ errors: result.array() });
         }
        
-        const data = matchedData(request);
+        //const data = matchedData(request);
 
-        // Check if user exists
-        const user = await User.findOne({email: data.email})
-        if (!user) {
-            return response.status(400).send({ message: "User not found" });
-        }
-        request.user = user;
-        console.log(request.user)
-        //return response.status(200).send({ message: "Succesfully logged in!!!!!!!!!!!!!!!!!!!!!"});
+        // Proceed with Passport.js authentication
+        // Proceed with Passport.js authentication
+        passport.authenticate("local", async (err, user, info) => {
+            if (err) {
+                return response.status(500).json({ err });
+            }
+            if (!user) {
+                return response.status(401).json({ message: "Access denied" });
+            }
 
-        //user exists, then make constatnt payload with the user information(user ID and email)
-        const payload = {
-            _id: user._id,
-            email: user.email
-        }
+            request.logIn(user, async (err) => {
+                if (err) {
+                    return response.status(500).json({ message: "Login failed" });
+                }
 
-        let accessToken, refreshToken;
-        try {
-            accessToken = jwt.sign(payload, keys, { expiresIn: '1m' });
-            refreshToken = jwt.sign(payload, keys2, { expiresIn: '30d' });
-        } catch (err) {
-            console.error("Error generating tokens:", err);
-            return response.status(500).json({ msg: "Error generating tokens" });
-        }
-        
-        // // Invalidate old refresh tokens
-        // //await RefreshToken.deleteMany({ user: user._id });
+                // Generate JWT tokens
+                const payload = { _id: user._id, email: user.email };
+                let accessToken, refreshToken;
+                try {
+                    accessToken = jwt.sign(payload, keys, { expiresIn: '1m' });
+                    refreshToken = jwt.sign(payload, keys2, { expiresIn: '30d' });
+                } catch (err) {
+                    console.error("Error generating tokens:", err);
+                    return response.status(500).json({ msg: "Error generating tokens" });
+                }
 
-        // // Store refresh token in database
-        try {
-            const newRefreshToken = new RefreshToken({
-                token: refreshToken,
-                user: user._id,
-                expiresAt: new Date(Date.now() + 30*24*60*60*1000) // 30 days expiration
+                // Store refresh token in the database
+                try {
+                    const newRefreshToken = new RefreshToken({
+                        token: refreshToken,
+                        user: user._id,
+                        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
+                    });
+
+                    await newRefreshToken.save();
+
+                    return response.json({
+                        status: true,
+                        msg: "Logged in successfully",
+                        accessToken: accessToken,
+                        refreshToken: refreshToken
+                    });
+                } catch (error) {
+                    console.log("Error in saving refresh token:", error);
+                    return response.status(500).json({ msg: "Server error" });
+                }
             });
-
-            await newRefreshToken.save();
-
-            return response.json({
-                status: true,
-                msg: "Logged in successfully",
-                accessToken: accessToken,
-                refreshToken: refreshToken
-            })
-        } catch (error) {
-            console.log("error in log in", error);
-            return response.status(500).json({msg: "Server error"})
-        }
+        })(request, response, next);
     }
     
 ]  

@@ -38,6 +38,7 @@ module.exports = (passport) => {
                 usernameField: 'email',
             }, 
             async (email, password, done) => {
+                console.log("passport working properly")
                 try {
                     const findUser = await User.findOne({ email });
                     if (!findUser) throw new Error("User not found");

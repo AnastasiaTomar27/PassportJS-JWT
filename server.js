@@ -7,6 +7,8 @@ const passport = require('passport')
 require('@mongooseConnection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
+const cookieParser = require('cookie-parser');
+
 //const MongoStore = require('connect-mongo');
 
 
@@ -17,6 +19,7 @@ const PORT = process.env.PORT || 3000;
 
 // middleware
 app.use(express.json());
+app.use(cookieParser("jwt learning")); // it makes the cookies easily readable from the request.cookies
 app.use(
     session({
         name: "connect.sid",
