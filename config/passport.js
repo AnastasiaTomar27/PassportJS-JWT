@@ -68,6 +68,9 @@ module.exports = (passport) => {
             } else {
                 console.log("Error in user authentication");
                 //return done(null, false); 
+                //return done(null)
+                return done(null, false, { message: 'User not found' });
+
             }
         })
     )

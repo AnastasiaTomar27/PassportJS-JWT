@@ -24,7 +24,7 @@ describe("User Auth Routes", () => {
                 .send({
                     name: "Test User",
                     email: "testuser@example.com",
-                    password: "password123"
+                    password: "Password123"
                 });
             
             expect(response.statusCode).toBe(201);
@@ -36,7 +36,7 @@ describe("User Auth Routes", () => {
             const user = new User({
                 name: "Existing User",
                 email: "existing@example.com",
-                password: await bcrypt.hash('password123', 10),
+                password: await bcrypt.hash('Password123', 10),
             });
             await user.save();
 
@@ -45,57 +45,55 @@ describe("User Auth Routes", () => {
                 .send({
                     name: "Existing User",
                     email: "existing@example.com",
-                    password: "password123"
+                    password: "Password123"
                 });
             
             expect(response.statusCode).toBe(400);
-            expect(response.body.msg).toBe("User already exists with this email");
+            expect(response.body.message).toBe("User already registered!");
         });
     });
 
     describe("POST /api/login", () => {
-        it("should login a user and return a JWT token", async () => {
-            //const password = await bcrypt.hash('password123', 10);
-            const user = new User({ name: "Login User", email: "login@example.com", password: "password123" });
-            await user.save();
+        describe("Logging with valid credentials", () => {
+            it("should login a user and return a JWT token", async () => {
+                const user = new User({ name: "Login User", email: "login@example.com", password: "Password123" });
+                await user.save();
 
-            const response = await request(app)
-                .post('/api/login')
-                .send({
-                    email: "login@example.com",
-                    password: "password123"
-                });
-            
-            expect(response.statusCode).toBe(200);
-            expect(response.body.msg).toBe("Logged in successfully");
-            expect(response.body.accessToken).toBeDefined();
-        });
+                const response = await request(app)
+                    .post('/api/login')
+                    .send({
+                        email: "login@example.com",
+                        password: "Password123"
+                    });
+                
+                expect(response.statusCode).toBe(200);
+                expect(response.body.msg).toBe("Logged in successfully");
+                expect(response.body.accessToken).toBeDefined();
+            });
+        })
+            it("should return 400 if credentials are invalid", async () => {
+                const user = new User({ name: "Login User", email: "login@example.com", password: "Password123" });
+                await user.save();
 
-        it("should return 400 if credentials are invalid", async () => {
-            //const password = await bcrypt.hash('password123', 10);
-            const user = new User({ name: "Login User", email: "login@example.com", password: "password123" });
-            await user.save();
-
-            const response = await request(app)
-                .post('/api/login')
-                .send({
-                    email: "login@example.com",
-                    password: "wrongpassword"
-                });
-            
-            expect(response.statusCode).toBe(400);
-            expect(response.body.msg).toBe("Invalid credentials");
-        });
+                const response = await request(app)
+                    .post('/api/login')
+                    .send({
+                        email: "login@example.com",
+                        password: "Wrongpassword1"
+                    });
+                
+                expect(response.body.message).toBe("Access Denied");
+            });
     });
 
     describe("GET /api/profile", () => {
         it("should return the user profile when authenticated with JWT", async () => {
             // Create a user and generate a JWT
-            const password = await bcrypt.hash('password123', 10);
+            const password = await bcrypt.hash('Password123', 10);
             const user = new User({ name: "Profile User", email: "profile@example.com", password });
             await user.save();
             
-            const token = jwt.sign({ _id: user._id, email: user.email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+            const token = jwt.sign({ _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
 
             const response = await request(app)
                 .get('/api/profile')

@@ -15,7 +15,7 @@ const keys2 = process.env.REFRESH_TOKEN_SECRET;
 exports.userRegister = [
         [
         body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
-        body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
+        body("email").notEmpty().isLength({ max: 30 }).withMessage('Email must be maximum of 30 characters.').isString(),
         body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
             .custom(async (value) => {
                 const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
@@ -60,7 +60,7 @@ exports.login = [
     // Validation middlaware
     [
         body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
-        body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
+        body("password").notEmpty().isLength({ max: 30 }).withMessage('Password must be maximum of 30 characters.').isString()
         .custom(async (value) => {
             const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
             if (!passwordRegex.test(value)) {
@@ -79,17 +79,15 @@ exports.login = [
 
         // Proceed with Passport.js authentication
         passport.authenticate("local", async (err, user, info) => {
-            if (err) {
-                return response.status(500).json({ err });
-            }
-            if (!user) {
-                return response.status(401).json({ message: "Access denied" });
-            }
+
+            console.log("err, user, info", err, user, info);
+
 
             request.logIn(user, async (err) => {
-                if (err) {
-                    return response.status(500).json({ message: "Login failed" });
-                }
+               
+                if (!request.user) {
+                    return response.status(401).send({ message: "Access Denied" }) 
+                } 
 
                 // Generate JWT tokens
                 const payload = { _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"};
@@ -129,12 +127,10 @@ exports.login = [
 ]  
 
 
-// I use passport.js here
 exports.userProfile = async (req, res) => {
     console.log(req.user);
-    // const userProfile = await User.findById(req.user._id).select('-password');
-    // return res.json(userProfile)
-    return res.json(req.user)
+    const userProfile = await User.findById(req.user._id).select('-password');
+    return res.json(userProfile)
 }
 
 exports.renewToken = async (req, res) => {
@@ -161,7 +157,7 @@ exports.renewToken = async (req, res) => {
             // Refresh token is valid, generating a new access token
             const newAccessToken = jwt.sign({ _id: decoded._id, email: decoded.email }, keys, { expiresIn: '1m' });
 
-            // Optionally, generating a new refresh token 
+            // generating a new refresh token 
             const newRefreshToken = jwt.sign({ _id: decoded._id, email: decoded.email }, keys2, { expiresIn: '30d' });
 
             // Updating the refresh token in the database
