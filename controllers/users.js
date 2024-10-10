@@ -39,10 +39,14 @@ exports.userRegister = [
                     return response.status(400).json({message: "User already registered!"});
                 }
                 const savedUser = await newUser.save();
+
+                // Omit the password before sending the response
+                const { password, ...userWithoutPassword } = savedUser.toObject();
+
                 return response.status(201).json({
                     success: true,
                     msg: "User created",
-                    data: savedUser
+                    data: userWithoutPassword
                 });
             } catch (err) {
                 console.log(err);
