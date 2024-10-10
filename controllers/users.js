@@ -34,11 +34,20 @@ exports.userRegister = [
             const newUser = new User(data);
 
             try {
-                const userAvailable = await User.findOne({email: data.email});
-                if (userAvailable) {
-                    return response.status(400).json({message: "User already registered!"});
-                }
-                const savedUser = await newUser.save();
+                const savedUser = await newUser.save()
+                    .then((user) => {
+                        return user;                    
+                    })
+                    .catch((e) => {
+                        console.error("Error while saving user:", e); // Log the error for debugging
+
+                        if (e.code === 11000) {
+                            return response.status(400).json({ message: "User already registered!" });
+                        } else {
+                            return response.status(500).json({ message: "An error occurred while registering the user." });
+                        }
+                    });
+
 
                 // Omit the password before sending the response
                 const { password, ...userWithoutPassword } = savedUser.toObject();
@@ -75,8 +84,6 @@ exports.login = [
             return response.status(400).send({ errors: result.array() });
         }
        
-        //const data = matchedData(request);
-
         // Proceed with Passport.js authentication
         passport.authenticate("local", async (err, user, info) => {
 
