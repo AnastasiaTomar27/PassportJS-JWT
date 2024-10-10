@@ -78,7 +78,6 @@ exports.login = [
         //const data = matchedData(request);
 
         // Proceed with Passport.js authentication
-        // Proceed with Passport.js authentication
         passport.authenticate("local", async (err, user, info) => {
             if (err) {
                 return response.status(500).json({ err });
@@ -93,7 +92,7 @@ exports.login = [
                 }
 
                 // Generate JWT tokens
-                const payload = { _id: user._id, email: user.email };
+                const payload = { _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"};
                 let accessToken, refreshToken;
                 try {
                     accessToken = jwt.sign(payload, keys, { expiresIn: '1m' });

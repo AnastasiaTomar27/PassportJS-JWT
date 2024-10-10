@@ -57,6 +57,12 @@ module.exports = (passport) => {
         'jwt',
         new StrategyJWT(accessTokenOptions, async(jwt_payload, done) => {
             const user = await User.findById(jwt_payload._id)
+            
+            // Check if the random field exists in the payload
+            if (!jwt_payload.random || jwt_payload.random !== 'gjsgkjgaiugeavjvgsguagjkdvkjlagv') {
+                return done(null, false, { message: 'Invalid token' });
+            }
+
             if(user){
                 return done(null, user)
             } else {
