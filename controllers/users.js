@@ -1,6 +1,7 @@
 const User = require('@modelsUser');
+const passport = require('../config/passport');
 const { validationResult, matchedData, body } = require('express-validator');
-const bcrypt = require('bcryptjs');
+//const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const RefreshToken = require('../mongoose/models/RefreshToken');
 
@@ -47,23 +48,37 @@ exports.userRegister = [
 ]
 
 
-exports.login = async(req, res) => {
-    try {
-        // First check if user exists: check email and password 
-        const { email, password } = req.body
+exports.login = [
+    // Validation middlaware
+    [
+        body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
+        body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
+        .custom(async (value) => {
+            const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
+            if (!passwordRegex.test(value)) {
+                throw new Error(); }
+            }).withMessage("User password configuration is invalid")
+    ],
+    // Checking validation results
+    async (request, response, next) => {
+        const result = validationResult(request);
 
-        const user = await User.findOne({email})
-
-        if(!user) {
-            return res.status(400).json({msg: "Invalid credentials"})
+        if (!result.isEmpty()) {
+            return response.status(400).send({ errors: result.array() });
         }
-        const isMatched = await bcrypt.compare(password, user.password);
+       
+        const data = matchedData(request);
 
-        if(!isMatched) {
-            return res.status(400).json({msg: "Invalid credentials"})
+        // Check if user exists
+        const user = await User.findOne({email: data.email})
+        if (!user) {
+            return response.status(400).send({ message: "User not found" });
         }
+        request.user = user;
+        console.log(request.user)
+        //return response.status(200).send({ message: "Succesfully logged in!!!!!!!!!!!!!!!!!!!!!"});
 
-        // if user exists, then make constatnt payload with the user information(user ID and email)
+        //user exists, then make constatnt payload with the user information(user ID and email)
         const payload = {
             _id: user._id,
             email: user.email
@@ -75,34 +90,35 @@ exports.login = async(req, res) => {
             refreshToken = jwt.sign(payload, keys2, { expiresIn: '30d' });
         } catch (err) {
             console.error("Error generating tokens:", err);
-            return res.status(500).json({ msg: "Error generating tokens" });
+            return response.status(500).json({ msg: "Error generating tokens" });
         }
         
-        // Invalidate old refresh tokens
-        //await RefreshToken.deleteMany({ user: user._id });
+        // // Invalidate old refresh tokens
+        // //await RefreshToken.deleteMany({ user: user._id });
 
-        // Store refresh token in database
-        const newRefreshToken = new RefreshToken({
-            token: refreshToken,
-            user: user._id,
-            expiresAt: new Date(Date.now() + 30*24*60*60*1000) // 30 days expiration
-        });
+        // // Store refresh token in database
+        try {
+            const newRefreshToken = new RefreshToken({
+                token: refreshToken,
+                user: user._id,
+                expiresAt: new Date(Date.now() + 30*24*60*60*1000) // 30 days expiration
+            });
 
-        await newRefreshToken.save();
+            await newRefreshToken.save();
 
-
-        return res.json({
-            status: true,
-            msg: "Logged in successfully",
-            accessToken: accessToken,
-            refreshToken: refreshToken
-        })
-        
-    } catch (error) {
-        console.log("error in log in", error);
-        return res.status(500).json({msg: "Server error"})
+            return response.json({
+                status: true,
+                msg: "Logged in successfully",
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            })
+        } catch (error) {
+            console.log("error in log in", error);
+            return response.status(500).json({msg: "Server error"})
+        }
     }
-}  
+    
+]  
 
 
 // I use passport.js here

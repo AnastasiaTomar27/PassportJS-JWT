@@ -1,28 +1,57 @@
+const passport = require('passport');
+const { Strategy } = require('passport-local');
 const StrategyJWT = require('passport-jwt').Strategy;
 const ExtractJWT = require('passport-jwt').ExtractJwt;
-// const RefreshToken = require('../mongoose/models/RefreshToken');
-// const customExtractJWT = (req) => {
-//     // Return the refresh token from the request body
-//     if (req && req.body && req.body.refreshToken) {
-//         return req.body.refreshToken;
-//     }
-//     return null; // Return null if refresh token is not found
-// };
+
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
-const keys2 = process.env.REFRESH_TOKEN_SECRET;
+//const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const User = require('../mongoose/models/user');
 
 const accessTokenOptions = {
     jwtFromRequest: ExtractJWT.fromAuthHeaderAsBearerToken(),
     secretOrKey: keys
 }
-// const refreshTokenOptions = {
-//     jwtFromRequest: customExtractJWT,
-//     secretOrKey: keys2
-// }
+
+passport.serializeUser((user, done) => { // to tell passport how to serialize user data into the session (it stores user ID to session data)
+    //console.log('Inside Serialize User');
+    done(null, user.id);
+})
+
+passport.deserializeUser(async (id, done) => { // to take that ID and unpack, reveal who the actual user is (searcheas for the user in database or in array) and then it stores that user object into the request object (then we can reference request.user when we make requests)
+    //console.log('Inside Deserializer');
+    //console.log(`Deserializing User ID: ${id}`);
+    try {
+        const findUser = await User.findById(id);
+        if (!findUser) throw new Error("User Not Found");
+        done(null, findUser);
+    } catch (err) {
+        done(err, null);
+    }
+})
 
 module.exports = (passport) => {
+    passport.use(
+        "local", // validates user - checks if user exists and the passwords match
+        new Strategy(
+            {
+                usernameField: 'email',
+            }, 
+            async (email, password, done) => {
+                try {
+                    const findUser = await User.findOne({ email });
+                    if (!findUser) throw new Error("User not found");
+                    const isMatch = await findUser.comparePassword(password);
+                    if (!isMatch) throw new Error("Bad Credentials");
+                    done(null, findUser);
+                } catch (err) {
+                    done(err, null);
+                }
+            }
+        
+        )
+    );
+
     passport.use(
         'jwt',
         new StrategyJWT(accessTokenOptions, async(jwt_payload, done) => {
@@ -35,37 +64,5 @@ module.exports = (passport) => {
             }
         })
     )
-
-    // passport.use(
-    //     'jwt-refresh',
-    //     new StrategyJWT(refreshTokenOptions, async (jwt_payload, done) => {
-    //         try {
-    //             const refreshToken = jwt_payload.refreshToken; // Get the refresh token from payload
-                
-    //             if (!refreshToken) {
-    //                 return done(null, false, { message: 'Refresh token not provided' });
-    //             }
-
-    //             // Check if the refresh token exists in the DB
-    //             const storedRefreshToken = await RefreshToken.findOne({ token: refreshToken });
-
-    //             if (!storedRefreshToken) {
-    //                 return done(null, false, { message: 'Invalid refresh token' });
-    //             }
-
-    //             // Check if the user exists
-    //             const user = await User.findById(jwt_payload._id);
-    //             if (user) {
-    //                 return done(null, user);
-    //             } else {
-    //                 return done(null, false, { message: 'User not found' });
-    //             }
-    //         } catch (error) {
-    //             console.log("Error in refreshing JWT", error);
-    //             return done(error, false);
-    //         }
-    //     })
-    // );
-    
 }
 
