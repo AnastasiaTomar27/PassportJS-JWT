@@ -107,6 +107,20 @@ describe("User Auth Routes", () => {
             expect(response.body).toHaveProperty('email', 'profile@example.com');
             expect(response.body).not.toHaveProperty('password');  // Password should be excluded
         });
+        it("should return status code 401 when authenticated with invalid JWT", async () => {
+            // Create a user and generate a JWT
+            const password = await bcrypt.hash('Password123', 10);
+            const user = new User({ name: "Profile User", email: "profile@example.com", password, agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}] });
+            await user.save();
+            
+            const token = jwt.sign({ _id: user._id, random: "hello"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
+
+            const response = await request(app)
+                .get('/api/profile')
+                .set('Authorization', `Bearer ${token}`);
+            
+            expect(response.statusCode).toBe(401);
+        });
 
         it("should return 401 if no JWT is provided", async () => {
             const response = await request(app).get('/api/profile');
