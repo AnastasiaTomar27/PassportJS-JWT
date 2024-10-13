@@ -90,10 +90,10 @@ describe("User Auth Routes", () => {
         it("should return the user profile when authenticated with JWT", async () => {
             // Create a user and generate a JWT
             const password = await bcrypt.hash('Password123', 10);
-            const user = new User({ name: "Profile User", email: "profile@example.com", password });
+            const user = new User({ name: "Profile User", email: "profile@example.com", password, agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}] });
             await user.save();
             
-            const token = jwt.sign({ _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+            const token = jwt.sign({ _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
 
             const response = await request(app)
                 .get('/api/profile')

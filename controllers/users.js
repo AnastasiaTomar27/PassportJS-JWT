@@ -1,16 +1,15 @@
 const User = require('@modelsUser');
 const passport = require('passport');
-
-//const passport = require('../config/passport');
-//require('../config/passport')(passport);
-
+const crypto = require('crypto');
+const BlacklistedToken = require('../mongoose/models/BlacklistedToken');
 const { validationResult, matchedData, body } = require('express-validator');
-//const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const RefreshToken = require('../mongoose/models/RefreshToken');
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
+const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
+const refreshTokenExpiry = process.env.JWT_REFRESH_TOKEN_EXPIRY // 30d; 
 
 exports.userRegister = [
         [
@@ -96,16 +95,40 @@ exports.login = [
                     return response.status(401).send({ message: "Access Denied" }) 
                 } 
 
+                //JWT session management system where an administrator can log out users by invalidating their JWT tokens.
+                // Generate a random session identifier
+                const sessionRandom = crypto.randomBytes(16).toString('hex');
+                
+                // Initialize agents array if it's undefined.  The code checks if agents exists
+                if (!user.agents) {
+                    user.agents = [];
+                }
+                
+                user.agents.push({
+                    random: sessionRandom
+                })
+
+                try {
+                    await user.save(); // Save the updated agents array to the database
+                } catch (saveError) {
+                    console.error("Error saving user agents:", saveError);
+                    return response.status(500).json({ msg: "Error saving user agents" });
+                } 
+
+                const payload = { _id: user._id, random: sessionRandom };
+
                 // Generate JWT tokens
-                const payload = { _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"};
                 let accessToken, refreshToken;
                 try {
-                    accessToken = jwt.sign(payload, keys, { expiresIn: '1m' });
-                    refreshToken = jwt.sign(payload, keys2, { expiresIn: '30d' });
+                    accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+                    refreshToken = jwt.sign(payload, keys2, { expiresIn: refreshTokenExpiry });
                 } catch (err) {
                     console.error("Error generating tokens:", err);
                     return response.status(500).json({ msg: "Error generating tokens" });
                 }
+
+                // Remove any existing refresh tokens for the same session before saving the new one
+                await RefreshToken.deleteMany({ user: user._id, session: sessionRandom });
 
                 // Store refresh token in the database
                 try {
@@ -116,12 +139,15 @@ exports.login = [
                     });
 
                     await newRefreshToken.save();
+                    const { password, ...userWithoutPassword } = user.toObject();
 
                     return response.json({
                         status: true,
                         msg: "Logged in successfully",
                         accessToken: accessToken,
-                        refreshToken: refreshToken
+                        refreshToken: refreshToken,
+                        user: userWithoutPassword // This will omit the password from the response
+
                     });
                 } catch (error) {
                     console.log("Error in saving refresh token:", error);
@@ -133,11 +159,12 @@ exports.login = [
     
 ]  
 
-
 exports.userProfile = async (req, res) => {
-    console.log(req.user);
-    const userProfile = await User.findById(req.user._id).select('-password');
-    return res.json(userProfile)
+    const userProfile = await User.findById(req.user._id);
+    return res.json({
+        email: userProfile.email,
+        name: userProfile.name
+    })
 }
 
 exports.renewToken = async (req, res) => {
@@ -208,4 +235,43 @@ exports.logout = async (req, res) => {
     }
 };
 
+//Admin Route to Terminate User Sessions
+exports.terminateSession = async (req,res) => {
+    try {
+        const userId = req.params.userId;
+        const { random } = req.body; // The random value to remove from agents array
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+    
+        // Remove the session from the agents array
+        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+
+        // Remove refresh tokens associated with this session
+        await RefreshToken.deleteMany({ user: userId, session: random }); // Remove tokens tied to this session
+
+        await user.save(); // saving to database without random in agents
+
+        // Check for the Bearer token
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'Authorization token is required' });
+        }
+
+        const tokenToBlacklist = authHeader.split(' ')[1]; // Extract the token
+        
+        // Check if the token is already blacklisted
+        const isBlacklisted = await BlacklistedToken.findOne({ token: tokenToBlacklist });
+        if (!isBlacklisted) {
+            await BlacklistedToken.create({ token: tokenToBlacklist }); // Save to blacklist
+        }
+
+        res.json({ message: 'User session terminated', agents: user.agents });
+      } catch (err) {
+        console.error('Error terminating session:', err);
+        res.status(500).json({ message: 'Error logging out user' });
+      }
+}
 

@@ -55,24 +55,28 @@ module.exports = (passport) => {
 
     passport.use(
         'jwt',
-        new StrategyJWT(accessTokenOptions, async(jwt_payload, done) => {
-            const user = await User.findById(jwt_payload._id)
-            
-            // Check if the random field exists in the payload
-            if (!jwt_payload.random || jwt_payload.random !== 'gjsgkjgaiugeavjvgsguagjkdvkjlagv') {
-                return done(null, false, { message: 'Invalid token' });
-            }
+        new StrategyJWT(accessTokenOptions, async (jwt_payload, done) => {
+            try {
+                const user = await User.findById(jwt_payload._id);
+                
+                // Check for random field in the payload
+                const validSession = user.agents.some(agent => agent.random === jwt_payload.random);
 
-            if(user){
-                return done(null, user)
-            } else {
-                console.log("Error in user authentication");
-                //return done(null, false); 
-                //return done(null)
-                return done(null, false, { message: 'User not found' });
-
+                if (!validSession) {
+                    return done(null, false, { message: 'Invalid token' });
+                }
+    
+                if (user) {
+                    return done(null, user);
+                } else {
+                    console.log("Error in user authentication");
+                    return done(null, false, { message: 'User not found' });
+                }
+            } catch (error) {
+                return done(error, false);
             }
         })
-    )
+    );
+    
 }
 

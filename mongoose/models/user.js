@@ -18,6 +18,10 @@ const UserSchema = new mongoose.Schema({
         required: true,
         min: 4,
         max: 20
+    },
+    agents: {
+        type: Array,
+        default: [] // Ensure agents is an array with a default value of an empty array
     }
 });
 
