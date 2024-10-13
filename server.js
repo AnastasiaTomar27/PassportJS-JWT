@@ -5,14 +5,21 @@ const express = require("express");
 const session = require('express-session');
 const passport = require('passport')
 require('@mongooseConnection')
+const { connectDB } = require('./mongoose/connection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
 const cookieParser = require('cookie-parser');
+const MongoStore = require('connect-mongo');
 
-//const MongoStore = require('connect-mongo');
-
-
+const secret = process.env.SECRET;
 app = express();
+
+connectDB()
+
+//Define the MongoDB URI based on the environment
+const mongoUri = process.env.NODE_ENV === 'test'
+  ? 'mongodb://localhost:27017/test' 
+  : process.env.MONGODB_URL;
 
 //const PORT = 8002
 const PORT = process.env.PORT || 3000; 
@@ -23,16 +30,16 @@ app.use(cookieParser("jwt learning")); // it makes the cookies easily readable f
 app.use(
     session({
         name: "connect.sid",
-        secret: "550b675cf9664e9035f9cd4f2d786bb9647f80b28fca7cc37b6f95b0173d9228d0fcfc00d3b5437f4896eff783c121b72afed4022b9fdd952a6e5a5f3d2eabb3",
+        secret: secret,
         saveUninitialized: false, // false means only when we modife session data ogbect, data will be stored to the session store 
         resave: false, // false means it will not resave cookies every time, expired date wil stay the same
         cookie: {
             maxAge: 60000 * 60 // 60000 mlsec = 60 sec = 1 min, 60000 * 60 = 1 hour
-        }
-        // store: MongoStore.create({
-        //     //client: mongoose.connection.getClient()
-        //     mongoUrl:mongoUri
-    //})
+        },
+        store: MongoStore.create({
+            //client: mongoose.connection.getClient()
+            mongoUrl:mongoUri
+    })
     })
 );
 app.use(passport.initialize());

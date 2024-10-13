@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const User = require('../mongoose/models/user');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { disconnectDB } = require('../mongoose/connection');
+
 
 // Clear the database after each test
 afterEach(async () => {
@@ -12,7 +14,9 @@ afterEach(async () => {
 
 afterAll(async () => {
     // Close the mongoose connection after all tests are done
-    await mongoose.connection.close();
+    //await mongoose.connection.close();
+    await disconnectDB();
+    console.log("Disconnected from in-memory MongoDB");
 });
 
 describe("User Auth Routes", () => {
