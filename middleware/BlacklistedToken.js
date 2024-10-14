@@ -29,8 +29,8 @@ const authenticateToken = async (req, res, next) => {
 
             // If valid, attach user information to request object
             req.user = user; 
-            next(); // Proceed to the next middleware
-        })(req, res); // Call the middleware with req and res
+            next(); 
+        })(req, res); 
     } catch (err) {
         console.error('Error during token authentication:', err);
         return res.status(500).json({ message: 'Server error' });

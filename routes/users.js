@@ -4,7 +4,6 @@ const {userRegister, login, userProfile, renewToken, logout, terminateSession} =
 const passport = require('passport');
 const authenticateToken = require('../middleware/BlacklistedToken');
 
-
 router.post("/signup", userRegister);
 router.post('/login', login);
 router.get('/profile', passport.authenticate("jwt", { session: false }), userProfile);

@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const BlacklistedToken = require('../mongoose/models/BlacklistedToken');
 const { validationResult, matchedData, body } = require('express-validator');
 const jwt = require('jsonwebtoken');
-const RefreshToken = require('../mongoose/models/RefreshToken');
+const RefreshToken = require('../mongoose/models/refreshToken');
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
@@ -86,7 +86,7 @@ exports.login = [
         // Proceed with Passport.js authentication
         passport.authenticate("local", async (err, user, info) => {
 
-            console.log("err, user, info", err, user, info);
+            //console.log("err, user, info", err, user, info);
 
 
             request.logIn(user, async (err) => {
@@ -217,7 +217,7 @@ exports.logout = async (req, res) => {
         const { refreshToken } = req.body;
 
         if (!refreshToken) {
-            return res.status(400).json({ msg: "Refresh token is required" });
+            return res.status(401).json({ msg: "Refresh token is required" });
         }
 
         // Finding the refresh token in the database and removing it
@@ -266,12 +266,23 @@ exports.terminateSession = async (req,res) => {
         const isBlacklisted = await BlacklistedToken.findOne({ token: tokenToBlacklist });
         if (!isBlacklisted) {
             await BlacklistedToken.create({ token: tokenToBlacklist }); // Save to blacklist
+            console.log("Token blacklisted successfully:", tokenToBlacklist);
+            // Log all blacklisted tokens for debugging
+            const allBlacklistedTokens = await BlacklistedToken.find({});
+            console.log("Current blacklisted tokens:", allBlacklistedTokens);
         }
 
-        res.json({ message: 'User session terminated', agents: user.agents });
+        return res.json({ 
+            message: 'User session terminated', 
+            userId : user._id, 
+            agentsEmpty: user.agents.length === 0});
       } catch (err) {
         console.error('Error terminating session:', err);
-        res.status(500).json({ message: 'Error logging out user' });
+        return res.status(500).json({ message: 'Error logging out user' });
       }
 }
+
+
+
+
 
