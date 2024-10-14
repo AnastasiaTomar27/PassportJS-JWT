@@ -22,7 +22,7 @@ const mongoUri = process.env.NODE_ENV === 'test'
   : process.env.MONGODB_URL;
 
 //const PORT = 8002
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3001; 
 
 // middleware
 app.use(express.json());

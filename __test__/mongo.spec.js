@@ -18,7 +18,6 @@ afterAll(async () => {
 });
 
 describe("User Routes", () => {
-    
     describe("POST /api/signup", () => {
         it("should create a new user and return 201", async () => {
             const response = await request(app)
@@ -38,9 +37,11 @@ describe("User Routes", () => {
             const user = new User({
                 name: "Existing User",
                 email: "existing@example.com",
-                password: await bcrypt.hash('Password123', 10),
+                password: "Password123"
+
             });
             await user.save();
+            console.log("Saved user password (hashed):", user.password);
 
             const response = await request(app)
                 .post('/api/signup')
@@ -49,7 +50,9 @@ describe("User Routes", () => {
                     email: "existing@example.com",
                     password: "Password123"
                 });
-            
+            const fetchedUser = await User.findOne({ email: "existing@example.com" });
+            console.log("Fetched user hashed password:", fetchedUser.password);
+        
             expect(response.statusCode).toBe(400);
             expect(response.body.message).toBe("User already registered!");
         });
@@ -58,9 +61,11 @@ describe("User Routes", () => {
     describe("POST /api/login", () => {
         describe("Logging with valid credentials", () => {
             it("should login a user and return a JWT token", async () => {
+                // register user
                 const user = new User({ name: "Login User", email: "login@example.com", password: "Password123" });
                 await user.save();
 
+                // login user
                 const response = await request(app)
                     .post('/api/login')
                     .send({
@@ -89,28 +94,37 @@ describe("User Routes", () => {
     });
 
     describe("GET /api/profile", () => {
-        it("should return the user profile when authenticated with JWT", async () => {
-            // Create a user and generate a JWT
-            //const password = await bcrypt.hash('Password123', 10);
-            const user = new User({ name: "Profile User", email: "profile@example.com", password: "Password123", agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}] });
-            await user.save();
-            
-            const token = jwt.sign({ _id: user._id, random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
+        let user;
+        let accessToken;
+        let refreshToken;
 
+        beforeEach(async () => {
+            user = new User({
+                name: "Profile User",
+                email: "profile@example.com",
+                password: "Password123",
+                agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}]
+            });
+            await user.save();
+    
+            // Log in to get tokens
+            const loginResponse = await request(app)
+                .post('/api/login')
+                .send({ email: user.email, password: "Password123" });
+    
+            accessToken = loginResponse.body.accessToken;
+            refreshToken = loginResponse.body.refreshToken;
+        });
+        it("should return the user profile when authenticated with JWT", async () => { 
             const response = await request(app)
                 .get('/api/profile')
-                .set('Authorization', `Bearer ${token}`);
+                .set('Authorization', `Bearer ${accessToken}`);
             
             expect(response.statusCode).toBe(200);
             expect(response.body).toHaveProperty('email', 'profile@example.com');
             expect(response.body).not.toHaveProperty('password');  // Password should be excluded
         });
         it("should return status code 401 when authenticated with invalid JWT", async () => {
-            // Create a user and generate a JWT
-            //const password = await bcrypt.hash('Password123', 10);
-            const user = new User({ name: "Profile User", email: "profile@example.com", password: "Password123", agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}] });
-            await user.save();
-            
             const token = jwt.sign({ _id: user._id, random: "hello"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
 
             const response = await request(app)
@@ -126,19 +140,27 @@ describe("User Routes", () => {
         });
     });
     describe("POST /api/renewAccessToken", () => {
-        it("should renew access and refresh token with a valid refresh token", async () => {
-            const user = new User({
+        let user;
+        let accessToken;
+        let refreshToken;
+
+        beforeEach(async () => {
+            user = new User({
                 name: "Token User",
                 email: "tokenuser@ex.com",
                 password: "Password123",
             });
             await user.save();
-
+    
+            // Log in to get tokens
             const loginResponse = await request(app)
-                .post('/api/login') 
+                .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
-            const refreshToken = loginResponse.body.refreshToken; 
-                
+    
+            accessToken = loginResponse.body.accessToken;
+            refreshToken = loginResponse.body.refreshToken;
+        });
+        it("should renew access and refresh token with a valid refresh token", async () => {   
             const response = await request(app)
                 .post('/api/renewAccessToken')
                 .send({ refreshToken });
@@ -271,7 +293,7 @@ describe("User Routes", () => {
 
             expect(response.statusCode).toBe(200);
             expect(response.body.agentsEmpty).toBe(true);
-                
+
             const blacklistedToken = await BlacklistedToken.findOne({ token: accessToken });
             console.log("Blacklisted Token Found:", blacklistedToken); 
 

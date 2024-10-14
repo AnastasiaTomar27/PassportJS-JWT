@@ -26,7 +26,7 @@ const UserSchema = new mongoose.Schema({
     // },
     agents: {
         type: Array,
-        default: [] // Ensure agents is an array with a default value of an empty array
+        default: [] 
     }
 });
 
