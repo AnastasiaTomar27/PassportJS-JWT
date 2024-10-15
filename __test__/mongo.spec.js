@@ -59,12 +59,17 @@ describe("User Routes", () => {
     });
 
     describe("POST /api/login", () => {
+        let user;
+        beforeEach(async () => {
+            user = new User({
+                name: "Login User",
+                email: "login@example.com",
+                password: "Password123",
+            });
+            await user.save();
+        });
         describe("Logging with valid credentials", () => {
             it("should login a user and return a JWT token", async () => {
-                // register user
-                const user = new User({ name: "Login User", email: "login@example.com", password: "Password123" });
-                await user.save();
-
                 // login user
                 const response = await request(app)
                     .post('/api/login')
@@ -79,9 +84,6 @@ describe("User Routes", () => {
             });
         })
             it("should return 400 if credentials are invalid", async () => {
-                const user = new User({ name: "Login User", email: "login@example.com", password: "Password123" });
-                await user.save();
-
                 const response = await request(app)
                     .post('/api/login')
                     .send({
