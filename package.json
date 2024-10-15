@@ -13,7 +13,11 @@
     "@modelsUser": "mongoose/models/user.js",
     "@mongooseConnection": "mongoose/connection.js",
     "@passport": "config/passport.js",
-    "@routesUsers": "routes/users.js"
+    "@routesUsers": "routes/users.js",
+    "@modelsRefreshToken": "mongoose/models/refreshToken.js",
+    "@modelsBlacklistedToken": "mongoose/models/BlacklistedToken.js",
+    "@middlewareBlackilistedToken": "middleware/BlacklistedToken.js",
+    "@server": "server.js"
   },
   "_moduleDirectories": [
     "src",

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {userRegister, login, userProfile, renewToken, logout, terminateSession} = require('@controllersUsers');
 const passport = require('passport');
-const authenticateToken = require('../middleware/BlacklistedToken');
+const authenticateToken = require('@middlewareBlackilistedToken');
 
 router.post("/signup", userRegister);
 router.post('/login', login);

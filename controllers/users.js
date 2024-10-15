@@ -1,10 +1,10 @@
 const User = require('@modelsUser');
 const passport = require('passport');
 const crypto = require('crypto');
-const BlacklistedToken = require('../mongoose/models/BlacklistedToken');
+const BlacklistedToken = require('@modelsBlacklistedToken');
 const { validationResult, matchedData, body } = require('express-validator');
 const jwt = require('jsonwebtoken');
-const RefreshToken = require('../mongoose/models/refreshToken');
+const RefreshToken = require('@modelsRefreshToken');
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;

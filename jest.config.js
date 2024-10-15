@@ -7,7 +7,7 @@ const aliases = require('module-alias-jest/register')
  */
 
 /** @type {import('jest').Config} */
-const config = {
+//const config = {
   // All imported modules in your tests should be mocked automatically
   // automock: false,
 
@@ -18,7 +18,7 @@ const config = {
   // cacheDirectory: "C:\\Users\\anast\\AppData\\Local\\Temp\\jest",
 
   // Automatically clear mock calls, instances, contexts and results before every test
-  clearMocks: true,
+  //clearMocks: true,
 
   // Indicates whether the coverage information should be collected while executing the test
   // collectCoverage: false,
@@ -35,7 +35,7 @@ const config = {
   // ],
 
   // Indicates which provider should be used to instrument code for coverage
-  coverageProvider: "v8",
+  //coverageProvider: "v8",
 
   // A list of reporter names that Jest uses when writing coverage reports
   // coverageReporters: [
@@ -197,10 +197,10 @@ const config = {
   // Whether to use watchman for file crawling
   // watchman: true,
   
-};
+//};
 
 module.exports = {
-  config,
+  //config,
   moduleNameMapper: aliases.jest
 };
 

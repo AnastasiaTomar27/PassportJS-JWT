@@ -1,12 +1,12 @@
-const app = require('../server');
+const app = require('@server');
 const request = require('supertest');
 const mongoose = require('mongoose');
-const User = require('../mongoose/models/user');
-const RefreshToken = require('../mongoose/models/refreshToken'); 
+const User = require('@modelsUser');
+const RefreshToken = require('@modelsRefreshToken'); 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { disconnectDB } = require('../mongoose/connection');
-const BlacklistedToken = require('../mongoose/models/BlacklistedToken')
+const { disconnectDB } = require('@mongooseConnection');
+const BlacklistedToken = require('@modelsBlacklistedToken');
 
 afterEach(async () => {
     await User.deleteMany();
