@@ -38,15 +38,14 @@ module.exports = (passport) => {
                 try {
                     const findUser = await User.findOne({ email });
                     if (!findUser) {
-                        return done(null, { message: "User not found" });
+                        return done(null, false);
                     }
                     const isMatch = await findUser.comparePassword(password);
                     if (!isMatch) {
-                        return done(null, { message: "Invalid credentials" });
+                        return done(null, false);
                     };
                     if (findUser.deletedAt) {
-                        // throw new Error("User deleted");
-                        return done(null, { message: "User account deleted" });
+                        return done(null, false);
                     }
                     done(null, findUser);
                 } catch (err) {

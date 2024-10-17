@@ -33,32 +33,27 @@ exports.userRegister = [
             const newUser = new User(data);
 
             try {
-                const savedUser = await newUser.save()
+                await newUser.save()
                     .then((user) => {
-                        return user;                    
+                        return response.status(201).json({
+                            success: true,
+                            msg: "User created",
+                            //data: userWithoutPassword
+                            data: {
+                                userId: user.id
+                            }
+                        });                    
                     })
                     .catch((e) => {
-                        console.error("Error while saving user:", e); // Log the error for debugging
+                        console.error("Error while saving user:", e); 
 
                         if (e.code === 11000) {
                             return response.status(400).json({ message: "User already registered!" });
-                        } else {
-                            return response.status(500).json({ message: "An error occurred while registering the user." });
-                        }
+                        } 
                     });
-
-
-                // Omit the password before sending the response
-                const { password, ...userWithoutPassword } = savedUser.toObject();
-
-                return response.status(201).json({
-                    success: true,
-                    msg: "User created",
-                    data: userWithoutPassword
-                });
             } catch (err) {
                 console.log(err);
-                return response.status(400);
+                return response.status(500).json({ message: "An error occurred while registering the user." });
             }
         }
 ]
@@ -84,80 +79,107 @@ exports.login = [
         }
        
         // Proceed with Passport.js authentication
-        passport.authenticate("local", async (err, user, info) => {
+        passport.authenticate("local", async (err, user, info) => { // here i only use passport for userauthentication, but don't attach user to the session 
+            if (!user) {
+                return response.status(401).send({ message:  "Access Denied"});
+            }
 
-            //console.log("err, user, info", err, user, info);
+            //JWT session management system where an administrator can log out users by invalidating their JWT tokens.
+            // Generate a random session identifier
+           
+            const sessionRandom = crypto.randomBytes(16).toString('hex');
+            // Initialize agents array if it's undefined.  The code checks if agents exists
+            if (!user.agents) {
+                user.agents = [];
+            }
+            
+            user.agents.push({
+                random: sessionRandom
+            })
 
+            try {
+                await user.save(); // Save the updated agents array to the database
+            } catch (saveError) {
+                console.error("Error saving user agents:", saveError);
+                return response.status(500).json({ msg: "Error saving user agents" });
+            } 
 
-            request.logIn(user, async (err) => {
-               
-                if (!request.user) {
-                    return response.status(401).send({ message: "Access Denied" }) 
-                } 
+            const payload = { _id: user._id, random: sessionRandom };
 
-                //JWT session management system where an administrator can log out users by invalidating their JWT tokens.
-                // Generate a random session identifier
-                const sessionRandom = crypto.randomBytes(16).toString('hex');
-                
-                // Initialize agents array if it's undefined.  The code checks if agents exists
-                if (!user.agents) {
-                    user.agents = [];
-                }
-                
-                user.agents.push({
-                    random: sessionRandom
-                })
+            // // Generate JWT tokens
+            let accessToken, refreshToken;
+            try {
+                accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+                refreshToken = jwt.sign(payload, keys2, { expiresIn: refreshTokenExpiry });
+            } catch (err) {
+                console.error("Error generating tokens:", err);
+                return response.status(500).json({ msg: "Error generating tokens" });
+            }
 
-                try {
-                    await user.save(); // Save the updated agents array to the database
-                } catch (saveError) {
-                    console.error("Error saving user agents:", saveError);
-                    return response.status(500).json({ msg: "Error saving user agents" });
-                } 
+            // Remove any existing refresh tokens for the same session before saving the new one
+            await RefreshToken.deleteMany({ user: user._id, session: sessionRandom });
 
-                const payload = { _id: user._id, random: sessionRandom };
+            // Store refresh token in the database
+            try {
+                const newRefreshToken = new RefreshToken({
+                    token: refreshToken,
+                    user: user._id,
+                    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
+                });
 
-                // Generate JWT tokens
-                let accessToken, refreshToken;
-                try {
-                    accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
-                    refreshToken = jwt.sign(payload, keys2, { expiresIn: refreshTokenExpiry });
-                } catch (err) {
-                    console.error("Error generating tokens:", err);
-                    return response.status(500).json({ msg: "Error generating tokens" });
-                }
+                await newRefreshToken.save();
+                const { password, ...userWithoutPassword } = user.toObject();
 
-                // Remove any existing refresh tokens for the same session before saving the new one
-                await RefreshToken.deleteMany({ user: user._id, session: sessionRandom });
+                return response.json({
+                    status: true,
+                    msg: "Logged in successfully",
+                    accessToken: accessToken,
+                    refreshToken: refreshToken,
+                    user: userWithoutPassword // This will omit the password from the response
 
-                // Store refresh token in the database
-                try {
-                    const newRefreshToken = new RefreshToken({
-                        token: refreshToken,
-                        user: user._id,
-                        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
-                    });
-
-                    await newRefreshToken.save();
-                    const { password, ...userWithoutPassword } = user.toObject();
-
-                    return response.json({
-                        status: true,
-                        msg: "Logged in successfully",
-                        accessToken: accessToken,
-                        refreshToken: refreshToken,
-                        user: userWithoutPassword // This will omit the password from the response
-
-                    });
-                } catch (error) {
-                    console.log("Error in saving refresh token:", error);
-                    return response.status(500).json({ msg: "Server error" });
-                }
-            });
+                });
+            } catch (error) {
+                console.log("Error in saving refresh token:", error);
+                return response.status(500).json({ msg: "Server error" });
+            }
+        
         })(request, response, next);
     }
     
-]  
+];  
+
+// exports.login = [
+//     // Validation middlaware
+//     [
+//         body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
+//         body("password").notEmpty().isLength({ max: 30 }).withMessage('Password must be maximum of 30 characters.').isString()
+//         .custom(async (value) => {
+//             const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
+//             if (!passwordRegex.test(value)) {
+//                 throw new Error(); }
+//             }).withMessage("User password configuration is invalid")
+//     ],
+//     // Checking validation results
+//     async (request, response, next) => {
+//         const result = validationResult(request);
+
+//         if (!result.isEmpty()) {
+//             return response.status(400).send({ errors: result.array() });
+//         }
+       
+//         // Proceed with Passport.js authentication
+//         passport.authenticate("local", async (err, user, info) => { // here i only use passport for userauthentication, but don't attach user to the session 
+//             if (!user) {
+//                 return response.status(401).send({ message:  "Access Denied"});
+//             }
+
+            
+//         })(request, response, next);
+//     }
+    
+// ];  
+
+
 
 exports.userProfile = async (req, res) => {
     const userProfile = await User.findById(req.user._id);

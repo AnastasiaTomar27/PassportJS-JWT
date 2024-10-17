@@ -54,6 +54,21 @@ app.get("/", (req, res) => {
 // define routes middleware
 app.use("/api", routes)
 
+// 404 Error handler - catches undefined routes
+app.use((req, res, next) => {
+    res.status(404).json({
+        message: "Resource not found. The URL you are trying to access does not exist."
+    });
+});
+
+// Global error handler for 500 - for internal server errors
+app.use((err, req, res, next) => {
+    console.error("Server error:", err); // Log the error for debugging
+    res.status(500).json({
+        message: "Internal server error. Please try again later."
+    });
+});
+
 app.listen(PORT, () => console.log("Server is running on port " + PORT))
 
 module.exports = app;
