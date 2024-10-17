@@ -128,15 +128,19 @@ exports.login = [
                 });
 
                 await newRefreshToken.save();
-                const { password, ...userWithoutPassword } = user.toObject();
+                //const { password, ...userWithoutPassword } = user.toObject();
 
                 return response.json({
                     status: true,
                     msg: "Logged in successfully",
                     accessToken: accessToken,
                     refreshToken: refreshToken,
-                    user: userWithoutPassword // This will omit the password from the response
+                    data: {
+                        user: user.name,
+                        email: user.email,
+                        _id: user._id,
 
+                    }
                 });
             } catch (error) {
                 console.log("Error in saving refresh token:", error);
@@ -147,39 +151,6 @@ exports.login = [
     }
     
 ];  
-
-// exports.login = [
-//     // Validation middlaware
-//     [
-//         body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
-//         body("password").notEmpty().isLength({ max: 30 }).withMessage('Password must be maximum of 30 characters.').isString()
-//         .custom(async (value) => {
-//             const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
-//             if (!passwordRegex.test(value)) {
-//                 throw new Error(); }
-//             }).withMessage("User password configuration is invalid")
-//     ],
-//     // Checking validation results
-//     async (request, response, next) => {
-//         const result = validationResult(request);
-
-//         if (!result.isEmpty()) {
-//             return response.status(400).send({ errors: result.array() });
-//         }
-       
-//         // Proceed with Passport.js authentication
-//         passport.authenticate("local", async (err, user, info) => { // here i only use passport for userauthentication, but don't attach user to the session 
-//             if (!user) {
-//                 return response.status(401).send({ message:  "Access Denied"});
-//             }
-
-            
-//         })(request, response, next);
-//     }
-    
-// ];  
-
-
 
 exports.userProfile = async (req, res) => {
     const userProfile = await User.findById(req.user._id);
