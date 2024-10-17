@@ -33,13 +33,14 @@ exports.userRegister = [
             const newUser = new User(data);
 
             try {
-                await newUser.save()
+                const savedUser = await newUser.save()
                     .then((user) => {
                         return response.status(201).json({
                             success: true,
                             msg: "User created",
-                            //data: userWithoutPassword
                             data: {
+                                name: user.name,
+                                email: user.email,
                                 userId: user.id
                             }
                         });                    
@@ -49,12 +50,14 @@ exports.userRegister = [
 
                         if (e.code === 11000) {
                             return response.status(400).json({ message: "User already registered!" });
-                        } 
+                        } else {
+                            return response.status(500).json({ message: "An error occurred while registering the user." });
+                        }
                     });
             } catch (err) {
                 console.log(err);
                 return response.status(500).json({ message: "An error occurred while registering the user." });
-            }
+            }  
         }
 ]
 
@@ -62,8 +65,8 @@ exports.userRegister = [
 exports.login = [
     // Validation middlaware
     [
-        body("email").notEmpty().isLength({ max: 20 }).withMessage('Email must be maximum of 20 characters.').isString(),
-        body("password").notEmpty().isLength({ max: 30 }).withMessage('Password must be maximum of 30 characters.').isString()
+        body("email").notEmpty().isString(),
+        body("password").notEmpty().isString()
         .custom(async (value) => {
             const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
             if (!passwordRegex.test(value)) {
