@@ -82,14 +82,12 @@ exports.login = [
         }
        
         // Proceed with Passport.js authentication
-        passport.authenticate("local", async (err, user, info) => { // here i only use passport for userauthentication, but don't attach user to the session 
+        passport.authenticate("local", async (err, user, info) => { // here i only use passport for user authentication, but don't attach user to the session 
             if (!user) {
                 return response.status(401).send({ message:  "Access Denied"});
             }
 
-            //JWT session management system where an administrator can log out users by invalidating their JWT tokens.
-            // Generate a random session identifier
-           
+            //JWT session management system where an administrator can log out users by invalidating their JWT tokens.           
             const sessionRandom = crypto.randomBytes(16).toString('hex');
             // Initialize agents array if it's undefined.  The code checks if agents exists
             if (!user.agents) {
@@ -127,7 +125,6 @@ exports.login = [
                 const newRefreshToken = new RefreshToken({
                     token: refreshToken,
                     user: user._id,
-                    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
                 });
 
                 await newRefreshToken.save();
@@ -156,10 +153,9 @@ exports.login = [
 ];  
 
 exports.userProfile = async (req, res) => {
-    const userProfile = await User.findById(req.user._id);
     return res.json({
-        email: userProfile.email,
-        name: userProfile.name
+        email: req.user.email,
+        name: req.user.name
     })
 }
 

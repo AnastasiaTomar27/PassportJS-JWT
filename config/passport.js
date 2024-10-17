@@ -38,7 +38,9 @@ module.exports = (passport) => {
                 try {
                     const findUser = await User.findOne({ email });
                     if (!findUser) {
-                        return done(null, false);
+                        // null for error means There was no error during the authentication process itself (i.e., no exceptions or failures in the system)
+                        //false for user means that The authentication failed because the user was not found, or the credentials were incorrect, or any other reason. 
+                        return done(null, false); 
                     }
                     const isMatch = await findUser.comparePassword(password);
                     if (!isMatch) {
