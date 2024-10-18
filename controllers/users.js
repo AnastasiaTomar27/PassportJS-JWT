@@ -46,14 +46,14 @@ exports.userRegister = [
                         console.error("Error while saving user:", e); 
 
                         if (e.code === 11000) {
-                            return response.status(400).json({ message: "User already registered!" });
+                            return response.status(400).send({ errors: [{msg: "User already registered!"}] });
                         } else {
-                            return response.status(500).json({ message: "An error occurred while registering the user." });
+                            return response.status(500).send({ errors: [{msg: "An error occurred while registering the user."}] });
                         }
                     });
             } catch (err) {
                 console.log(err);
-                return response.status(500).json({ message: "An error occurred while registering the user." });
+                return response.status(500).json({ errors: [{msg: "An error occurred while registering the user."}] });
             }  
         }
 ]
@@ -82,11 +82,11 @@ exports.login = [
             console.log("err, user, info", err, user, info)
             
             if (err) {
-                return response.status(500).send({ message: "Internal Server Error" });
+                return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
             }
             
             if (!user) {
-                return response.status(401).send({ message:  "Access Denied"});
+                return response.status(401).send({ errors: [{ msg: "Access Denied" }] });
             }
 
             const sessionRandom = crypto.randomBytes(16).toString('hex');
@@ -104,7 +104,7 @@ exports.login = [
                 await user.save(); // Save the updated agents array to the database
             } catch (saveError) {
                 console.error("Error saving user agents:", saveError);
-                return response.status(500).json({ msg: "Error saving user agents" });
+                return response.status(500).send({ errors: [{msg: "Error saving user agents"}] });
             } 
 
             const payload = { _id: user._id, random };
@@ -114,7 +114,7 @@ exports.login = [
                 accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
                 refreshToken = jwt.sign(payload, keys2);
             } catch (err) {
-                return response.status(500).json({ msg: "Error generating tokens" });
+                return response.status(500).send({ errors: [{msg: "Error generating tokens"}] });
             }
 
             try {
@@ -131,7 +131,7 @@ exports.login = [
                 });
             } catch (error) {
                 console.log("Error in saving refresh token:", error);
-                return response.status(500).json({ msg: "Server error" });
+                return response.status(500).send({ errors: [{msg: "Server error"}] });
             }
         
         })(request, response, next);
@@ -151,7 +151,7 @@ exports.renewToken = async (req, res) => {
         const { refreshToken } = req.body; // Extracting the refresh token from the request body
 
         if (!refreshToken) {
-            return res.status(401).json({ msg: "Refresh token is required" });
+            return res.status(401).json({ errors: [{ msg: "Refresh token is required" }] });
         }
 
         // Verifying the refresh token
@@ -159,12 +159,12 @@ exports.renewToken = async (req, res) => {
         jwt.verify(refreshToken, keys2, async (err, decoded) => {
             if (err) {
                 console.log("JWT verification error:", err)
-                return res.status(403).json({ msg: "Unauthorized: Invalid or expired refresh token" });
+                return res.status(403).json({ errors: [{msg: "Unauthorized: Invalid or expired refresh token"}] });
             }
             const user = await User.findById(decoded._id);
-            // if (!user) {
-            //     return res.status(404).json({ msg: "User not found" });
-            // }
+            if (!user) {
+                return res.status(404).json({ errors: [{msg: "User not found"}] });
+            }
             const sessionRandom = crypto.randomBytes(16).toString('hex');
             
             user.agents = [];
@@ -178,7 +178,7 @@ exports.renewToken = async (req, res) => {
                 await user.save(); // Save the updated agents array to the database
             } catch (saveError) {
                 console.error("Error saving user agents:", saveError);
-                return response.status(500).json({ msg: "Error saving user agents" });
+                return response.status(500).json({ errors: [{msg: "Error saving user agents"}] });
             } 
 
             const payload = { _id: decoded._id, random: sessionRandom };
@@ -188,7 +188,7 @@ exports.renewToken = async (req, res) => {
                 newAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
                 newRefreshToken = jwt.sign(payload, keys2);
             } catch (err) {
-                return response.status(500).json({ msg: "Error generating tokens" });
+                return response.status(500).json({ errors: [{msg: "Error generating tokens"}] });
             }
 
             return res.json({
@@ -201,7 +201,7 @@ exports.renewToken = async (req, res) => {
 
     } catch (error) {
         console.log('Error refreshing access token', error);
-        return res.status(500).json({ msg: 'Server error' });
+        return res.status(500).json({ errors: [{msg: 'Server error'}] });
     }
 };
 
