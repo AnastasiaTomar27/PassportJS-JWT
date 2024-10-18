@@ -38,20 +38,21 @@ module.exports = (passport) => {
                 try {
                     const findUser = await User.findOne({ email });
                     if (!findUser) {
-                        // null for error means There was no error during the authentication process itself (i.e., no exceptions or failures in the system)
-                        //false for user means that The authentication failed because the user was not found, or the credentials were incorrect, or any other reason. 
-                        return done(null, false); 
+                        // user not found
+                        return done(null, false); //null - no errors in server side, false - eroor in user auth
                     }
                     const isMatch = await findUser.comparePassword(password);
                     if (!isMatch) {
+                        // password does't match
                         return done(null, false);
                     };
                     if (findUser.deletedAt) {
+                        // user delited
                         return done(null, false);
                     }
                     done(null, findUser);
                 } catch (err) {
-                    done(err, null);
+                    done(err, null); // err -error in server side, null - no user returned
                 }
             }
         
@@ -63,21 +64,24 @@ module.exports = (passport) => {
         new StrategyJWT(accessTokenOptions, async (jwt_payload, done) => {
             try {
                 const user = await User.findById(jwt_payload._id);
-                
+
                 // Check for random field in the payload
                 const validSession = user.agents.some(agent => agent.random === jwt_payload.random);
 
                 if (!validSession) {
-                    return done(null, false, { message: 'Invalid token' });
+                    // invalid token
+                    return done(null, false);
                 }
     
                 if (user) {
                     return done(null, user);
                 } else {
                     console.log("Error in user authentication");
-                    return done(null, false, { message: 'User not found' });
+                    // user not found
+                    return done(null, false); // null - no server errors, false - error in user auth
                 }
             } catch (error) {
+                // error - error in server side, false - false for user
                 return done(error, false);
             }
         })

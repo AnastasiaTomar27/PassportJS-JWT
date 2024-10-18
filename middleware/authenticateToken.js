@@ -1,5 +1,4 @@
 const passport = require('passport');
-const BlacklistedToken = require('../mongoose/models/BlacklistedToken'); // Import BlacklistedToken
 
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -11,13 +10,6 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1]; // Extract the JWT
 
     try {
-        // Check if the token has been blacklisted
-        const blacklisted = await BlacklistedToken.findOne({ token });
-        if (blacklisted) {
-            return res.status(401).json({ message: 'Token is blacklisted' });
-        }
-
-        // Use Passport to authenticate the token
         passport.authenticate('jwt', { session: false }, (err, user, info) => {
             if (err) {
                 return res.status(500).json({ message: 'Server error during authentication' });
