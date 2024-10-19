@@ -52,7 +52,6 @@ exports.userRegister = [
                         }
                     });
             } catch (err) {
-                console.log(err);
                 return response.status(500).json({ errors: [{msg: "An error occurred while registering the user."}] });
             }  
         }
@@ -79,7 +78,7 @@ exports.login = [
         }
        
         passport.authenticate("local", async (err, user, info) => { // here i only use passport for user authentication, but don't attach user to the session 
-            console.log("err, user, info", err, user, info)
+            //console.log("err, user, info", err, user, info)
             
             if (err) {
                 return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
@@ -151,7 +150,9 @@ exports.renewToken = async (req, res) => {
         const { refreshToken } = req.body; // Extracting the refresh token from the request body
 
         if (!refreshToken) {
-            return res.status(401).json({ errors: [{ msg: "Refresh token is required" }] });
+            // 400 - bad request (request is malformed or incomplete)
+            // the server cannot process the request due to client-side issues.
+            return res.status(400).json({ errors: [{ msg: "Refresh token is required" }] });
         }
 
         // Verifying the refresh token
@@ -159,10 +160,13 @@ exports.renewToken = async (req, res) => {
         jwt.verify(refreshToken, keys2, async (err, decoded) => {
             if (err) {
                 console.log("JWT verification error:", err)
-                return res.status(403).json({ errors: [{msg: "Unauthorized: Invalid or expired refresh token"}] });
+                // 401 -request was not successful because it 
+                // lacks valid authentication credentials for the requested resource
+                return res.status(401).json({ errors: [{msg: "Invalid or expired refresh token"}] });
             }
             const user = await User.findById(decoded._id);
             if (!user) {
+                // 404 - error is about a missing resource
                 return res.status(404).json({ errors: [{msg: "User not found"}] });
             }
             const sessionRandom = crypto.randomBytes(16).toString('hex');
@@ -177,7 +181,6 @@ exports.renewToken = async (req, res) => {
             try {
                 await user.save(); // Save the updated agents array to the database
             } catch (saveError) {
-                console.error("Error saving user agents:", saveError);
                 return response.status(500).json({ errors: [{msg: "Error saving user agents"}] });
             } 
 
@@ -200,75 +203,52 @@ exports.renewToken = async (req, res) => {
         });
 
     } catch (error) {
-        console.log('Error refreshing access token', error);
         return res.status(500).json({ errors: [{msg: 'Server error'}] });
     }
 };
 
-// exports.logout = async (req, res) => {
-//     try {
-//         const { accessToken } = req.body;
+exports.logout = async (req, res) => {
+    try {
+        const random = req.user.agents.find(agent => agent.random)?.random;
 
-//         // if (!accessToken) {
-//         //     return res.status(401).json({ msg: "Refresh token is required" });
-//         // }
+        if (!random) {
+            return res.status(401).json({ msg: "Session not found or invalid." });
+        }
+        req.user.agents = req.user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        await req.user.save();
+        return res.json({ msg: "Logged out successfully" });
 
-       
+    } catch (error) {
+        console.log("Error logging out", error);
+        return res.status(500).json({ msg: "Server error" });
+    }
+};
 
-//         return res.json({ msg: "Logged out successfully" });
+//Admin Route to Terminate User Sessions
+exports.terminateSession = async (req,res) => {
+    try {
+        const { userId } = req.body; // The random value to remove from agents array
 
-//     } catch (error) {
-//         console.log("Error logging out", error);
-//         return res.status(500).json({ msg: "Server error" });
-//     }
-// };
-
-// //Admin Route to Terminate User Sessions
-// exports.terminateSession = async (req,res) => {
-//     try {
-//         const userId = req.params.userId;
-//         const { random } = req.body; // The random value to remove from agents array
-
-//         const user = await User.findById(userId);
-//         if (!user) {
-//             return res.status(404).json({ message: 'User not found' });
-//         }
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ errors: [{message: 'User not found'}] });
+        }
     
-//         // Remove the session from the agents array
-//         user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        const random = user.agents.find(agent => agent.random)?.random;
 
-//         // Remove refresh tokens associated with this session
-//         await RefreshToken.deleteMany({ user: userId, session: random }); // Remove tokens tied to this session
+        // Remove the session from the agents array
+        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
-//         await user.save(); // saving to database without random in agents
+        await user.save(); // saving to database without random in agents
 
-//         // Check for the Bearer token
-//         const authHeader = req.headers.authorization;
-//         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-//             return res.status(401).json({ message: 'Authorization token is required' });
-//         }
-
-//         // const tokenToBlacklist = authHeader.split(' ')[1]; // Extract the token
-        
-//         // // Check if the token is already blacklisted
-//         // const isBlacklisted = await BlacklistedToken.findOne({ token: tokenToBlacklist });
-//         // if (!isBlacklisted) {
-//         //     await BlacklistedToken.create({ token: tokenToBlacklist }); // Save to blacklist
-//         //     console.log("Token blacklisted successfully:", tokenToBlacklist);
-//         //     // Log all blacklisted tokens for debugging
-//         //     const allBlacklistedTokens = await BlacklistedToken.find({});
-//         //     console.log("Current blacklisted tokens:", allBlacklistedTokens);
-//         // }
-
-//         return res.json({ 
-//             message: 'User session terminated', 
-//             userId : user._id, 
-//             agentsEmpty: user.agents.length === 0});
-//       } catch (err) {
-//         console.error('Error terminating session:', err);
-//         return res.status(500).json({ message: 'Error logging out user' });
-//       }
-// }
+        return res.json({ 
+            message: 'User session terminated', 
+            userId : user._id, 
+        });
+      } catch (err) {
+        return res.status(500).json({ errors: [{message: 'Error logging out user'}] });
+      }
+}
 
 
 

@@ -56,6 +56,7 @@ app.use("/api", routes)
 
 // 404 Error handler - catches undefined routes
 app.use((req, res, next) => {
+    // 404 - the server could not find a requested resource. 
     res.status(404).json({
         errors: [{
             msg: "Resource not found. The URL you are trying to access does not exist."
