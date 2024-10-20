@@ -226,44 +226,49 @@ exports.logout = async (req, res) => {
     }
 };
 
-//Admin Route to Terminate User Sessions
-exports.terminateSession = async (req,res) => {
-    try {
-        const { userId } = req.body; 
+// //Admin Route to Terminate User Sessions
+// exports.terminateSession = async (req,res) => {
+//     try {
+//         const { userId } = req.body; 
 
-        // Validate the userId format
-        if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ errors: [{ message: 'Invalid user ID format' }] });
-        }
+//         // Validate the userId format
+//         if (!mongoose.Types.ObjectId.isValid(userId)) {
+//             return res.status(400).json({ errors: [{ msg: 'Invalid user ID format' }] });
+//         }
 
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ errors: [{message: 'User not found'}] });
-        }
+//         const user = await User.findById(userId);
+//         if (!user) {
+//             return res.status(404).json({ errors: [{msg: 'User not found'}] });
+//         }
     
-        console.log("User agents before:", user.agents);
+//         console.log("User agents before:", user.agents);
 
-        const random = user.agents.find(agent => agent.random)?.random;
+//         const random = user.agents.find(agent => agent.random)?.random;
 
-        console.log("Random value found:", random);
+//         console.log("Random value found:", random);
 
-        // Remove the session from the agents array
-        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+//         // Remove the session from the agents array
+//         user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
-        console.log("User agents after:", user.agents);
+//         console.log("User agents after:", user.agents);
 
-        await user.save(); // saving to database without random in agents
+//         await user.save(); // saving to database without random in agents
 
-        return res.json({ 
-            message: 'User session terminated', 
-            userId : user._id, 
-        });
-      } catch (err) {
-        //console.error("Error during terminateSession:", err);
+//         return res.json({ 
+//             data: {
+//                 msg: 'User session terminated', 
+//                 userId : user._id, 
+//                 name: user.name,
+//                 email: user.email
+//             }
+            
+//         });
+//       } catch (err) {
+//         console.error("Error during terminateSession:", err);
 
-        return res.status(500).json({ errors: [{message: 'Error logging out user'}] });
-      }
-}
+//         return res.status(500).json({ errors: [{msg: 'Error logging out user'}] });
+//       }
+// }
 
 
 

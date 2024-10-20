@@ -43,7 +43,7 @@ router.post('/logout', (req, res, next) => {
         next();
     })(req, res, next);
 }, logout);
-router.post('/admin/logout-user', terminateSession);
+//router.post('/admin/logout-user', terminateSession);
 
 
 module.exports = router;

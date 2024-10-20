@@ -12,7 +12,7 @@ const cookieParser = require('cookie-parser');
 const MongoStore = require('connect-mongo');
 
 const secret = process.env.SECRET;
-app = express();
+const app = express();
 
 connectDB()
 
