@@ -3,7 +3,7 @@ const passport = require('passport');
 const crypto = require('crypto');
 const { validationResult, matchedData, body } = require('express-validator');
 const jwt = require('jsonwebtoken');
-
+const mongoose = require('mongoose');
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
@@ -30,7 +30,7 @@ exports.userRegister = [
             const newUser = new User(data);
 
             try {
-                const savedUser = await newUser.save()
+                await newUser.save()
                     .then((user) => {
                         return response.status(201).json({
                             success: true,
@@ -43,7 +43,7 @@ exports.userRegister = [
                         });                    
                     })
                     .catch((e) => {
-                        console.error("Error while saving user:", e); 
+                        //console.error("Error while saving user:", e); 
 
                         if (e.code === 11000) {
                             return response.status(400).send({ errors: [{msg: "User already registered!"}] });
@@ -159,7 +159,6 @@ exports.renewToken = async (req, res) => {
         //decoded -decoded payload (user id, random)
         jwt.verify(refreshToken, keys2, async (err, decoded) => {
             if (err) {
-                console.log("JWT verification error:", err)
                 // 401 -request was not successful because it 
                 // lacks valid authentication credentials for the requested resource
                 return res.status(401).json({ errors: [{msg: "Invalid or expired refresh token"}] });
@@ -212,32 +211,43 @@ exports.logout = async (req, res) => {
         const random = req.user.agents.find(agent => agent.random)?.random;
 
         if (!random) {
-            return res.status(401).json({ msg: "Session not found or invalid." });
+            return res.status(401).json({ errors: [{msg: "Unauthorized access."}] });
         }
         req.user.agents = req.user.agents.filter(agent => agent.random !== random); // will remove random from agents array
         await req.user.save();
-        return res.json({ msg: "Logged out successfully" });
+        return res.status(200).json({ msg: "Logged out successfully" });
 
     } catch (error) {
         console.log("Error logging out", error);
-        return res.status(500).json({ msg: "Server error" });
+        return res.status(500).json({ errors: [{msg: "Server error"}] });
     }
 };
 
 //Admin Route to Terminate User Sessions
 exports.terminateSession = async (req,res) => {
     try {
-        const { userId } = req.body; // The random value to remove from agents array
+        const { userId } = req.body; 
+
+        // Validate the userId format
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ errors: [{ message: 'Invalid user ID format' }] });
+        }
 
         const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({ errors: [{message: 'User not found'}] });
         }
     
+        console.log("User agents before:", user.agents);
+
         const random = user.agents.find(agent => agent.random)?.random;
+
+        console.log("Random value found:", random);
 
         // Remove the session from the agents array
         user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+
+        console.log("User agents after:", user.agents);
 
         await user.save(); // saving to database without random in agents
 
@@ -246,6 +256,8 @@ exports.terminateSession = async (req,res) => {
             userId : user._id, 
         });
       } catch (err) {
+        //console.error("Error during terminateSession:", err);
+
         return res.status(500).json({ errors: [{message: 'Error logging out user'}] });
       }
 }
