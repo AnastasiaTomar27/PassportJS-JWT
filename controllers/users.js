@@ -139,9 +139,12 @@ exports.login = [
 ];  
 
 exports.userProfile = async (req, res) => {
-    return res.json({
-        email: req.user.email,
-        name: req.user.name
+    return res.status(200).json({
+        data: {
+            email: req.user.email,
+            name: req.user.name
+        }
+        
     })
 }
 

@@ -50,44 +50,126 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(400);
             expect(response.body.errors[0].msg).toBe("User already registered!");
         });
-        it("should return validation errors for name, email, and password", async () => {
-            const response = await request(app)
-                .post('/api/signup')
-                .send({
-                    name: "",
-                    email: "testuser@example.commmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
-                    password: 123
-                });
-        
-            // Expect response status to be 400 (validation errors)
-            expect(response.status).toBe(400);
-        
-            // Expect the array of errors to contain specific validation messages
-            expect(response.body.errors).toEqual(
-                expect.arrayContaining([
-                    // 'name' field
-                    expect.objectContaining({
-                        msg: "Invalid value", 
-                        path: "name"
-                    }),
-                    // 'email' field
-                    expect.objectContaining({
-                        msg: "Email must be maximum of 30 characters.", 
-                        path: "email"
-                    }),
-                    // 'password' field
-                    expect.objectContaining({
-                        msg: "Invalid value", 
-                        path: "password"
-                    }),
-                    expect.objectContaining({
-                        msg: "User password configuration is invalid", 
-                        path: "password"
-                    })
-                ])
-            );
+
+        describe("Registering with invalid credentials", () => {
+            it("NAME: should return validation error for name, if it is empty", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        email: "testuser@example.com",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("NAME: should return validation error for name, if it's lenght is more than 20 characters'", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markusssssssssssssssssssssssssssssssssssssssssss",
+                        email: "testuser@example.com",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Name must be maximum of 20 characters.");
+            });
+            it("NAME: should return validation error for name, if it is not a string", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: 123,
+                        email: "testuser@example.com",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("EMAIL: should return validation error for email, if it is empty", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("EMAIL: should return validation error for email, if it's lenght is more than 30 characters'", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.commmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Email must be maximum of 30 characters.");
+            });
+            it("EMAIL: should return validation error for email, if it is not a string", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: 123,
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if it is empty", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if it's lenght is more than 20 characters'", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                        password: "Password123kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Password must be maximum of 20 characters.");
+            });
+            it("PASSWORD: should return validation error for password, if it is not a string", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                        password: 123
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if there is no capital letter", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                        password: "password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("User password configuration is invalid");
+            });
         });
-        
     });
 
     describe("POST /api/login", () => {
@@ -115,16 +197,67 @@ describe("User Routes", () => {
                 expect(response.body.accessToken).toBeDefined();
             });
         })
-            it("should return 400 if credentials are invalid", async () => {
+        describe("Logging with invalid credentials", () => {
+            it("EMAIL: should return validation error for email, if it is empty", async () => {
                 const response = await request(app)
-                    .post('/api/login')
+                    .post('/api/signup')
                     .send({
-                        email: "login@example.com",
-                        password: "Wrongpassword1"
+                        name: "Markus",
+                        password: "Password123"
                     });
-                
-                expect(response.body.errors[0].msg).toBe("Access Denied");
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
             });
+            
+            it("EMAIL: should return validation error for email, if it is not a string", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: 123,
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if it is empty", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if it is not a string", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                        password: 123
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
+            it("PASSWORD: should return validation error for password, if there is no capital letter", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "testuser@example.com",
+                        password: "password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("User password configuration is invalid");
+            });
+        });
     });
 
     describe("GET /api/profile", () => {
@@ -155,8 +288,8 @@ describe("User Routes", () => {
                 .set('Authorization', `Bearer ${accessToken}`);
             
             expect(response.statusCode).toBe(200);
-            expect(response.body).toHaveProperty('email', 'profile@example.com');
-            expect(response.body).not.toHaveProperty('password');  // Password should be excluded
+            expect(response.body.data).toHaveProperty('email', 'profile@example.com');
+            expect(response.body.data).not.toHaveProperty('password');  // Password should be excluded
         });
         it("should return status code 401 when authenticated with invalid JWT", async () => {
             const token = jwt.sign({ _id: user._id, random: "hello"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
@@ -192,7 +325,8 @@ describe("User Routes", () => {
             const loginResponse = await request(app)
                 .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
-    
+            
+            accessToken = loginResponse.body.accessToken;
             refreshToken = loginResponse.body.refreshToken;
         });
         it("should renew access and refresh token with a valid refresh token", async () => {   
@@ -203,6 +337,17 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(200);
             expect(response.body).toHaveProperty('accessToken');
             expect(response.body).toHaveProperty('refreshToken');
+        
+            // check if new access token works correctly
+            const newAccessToken = response.body.accessToken;
+
+            profileRouteResponse = await request(app)
+                .get('/api/profile')
+                .set('Authorization', `Bearer ${newAccessToken}`);
+
+                expect(profileRouteResponse.statusCode).toBe(200); 
+                expect(profileRouteResponse.body.data).toHaveProperty('email', 'tokenuser@ex.com');
+                expect(profileRouteResponse.body.data).toHaveProperty('name', "Token User");
         });
     
         it("should return 401 if no refresh token is provided", async () => {
