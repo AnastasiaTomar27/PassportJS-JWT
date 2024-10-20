@@ -22,7 +22,7 @@ const mongoUri = process.env.NODE_ENV === 'test'
   : process.env.MONGODB_URL;
 
 //const PORT = 8002
-const PORT = process.env.PORT || 3002; 
+const PORT = process.env.PORT || 3000; 
 
 // middleware
 app.use(express.json());
@@ -66,7 +66,6 @@ app.use((req, res, next) => {
 
 // Global error handler for 500 - for internal server errors
 app.use((err, req, res, next) => {
-    console.error("Server error:", err); // Log the error for debugging
     res.status(500).json({
         errors: [{
             msg: "Internal server error. Please try again later."

@@ -2,11 +2,9 @@ const app = require('@server');
 const request = require('supertest');
 const mongoose = require('mongoose');
 const User = require('@modelsUser');
-const RefreshToken = require('@modelsRefreshToken'); 
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+//const bcrypt = require('bcryptjs');
 const { disconnectDB } = require('@mongooseConnection');
-const BlacklistedToken = require('@modelsBlacklistedToken');
 
 afterEach(async () => {
     await User.deleteMany();
@@ -14,7 +12,6 @@ afterEach(async () => {
 
 afterAll(async () => {
     await disconnectDB();
-    console.log("Disconnected from in-memory MongoDB");
 });
 
 describe("User Routes", () => {
@@ -41,7 +38,6 @@ describe("User Routes", () => {
 
             });
             await user.save();
-            console.log("Saved user password (hashed):", user.password);
 
             const response = await request(app)
                 .post('/api/signup')
@@ -50,12 +46,48 @@ describe("User Routes", () => {
                     email: "existing@example.com",
                     password: "Password123"
                 });
-            const fetchedUser = await User.findOne({ email: "existing@example.com" });
-            console.log("Fetched user hashed password:", fetchedUser.password);
         
             expect(response.statusCode).toBe(400);
-            expect(response.body.message).toBe("User already registered!");
+            expect(response.body.errors[0].msg).toBe("User already registered!");
         });
+        it("should return validation errors for name, email, and password", async () => {
+            const response = await request(app)
+                .post('/api/signup')
+                .send({
+                    name: "",
+                    email: "testuser@example.commmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+                    password: 123
+                });
+        
+            // Expect response status to be 400 (validation errors)
+            expect(response.status).toBe(400);
+        
+            // Expect the array of errors to contain specific validation messages
+            expect(response.body.errors).toEqual(
+                expect.arrayContaining([
+                    // 'name' field
+                    expect.objectContaining({
+                        msg: "Invalid value", 
+                        path: "name"
+                    }),
+                    // 'email' field
+                    expect.objectContaining({
+                        msg: "Email must be maximum of 30 characters.", 
+                        path: "email"
+                    }),
+                    // 'password' field
+                    expect.objectContaining({
+                        msg: "Invalid value", 
+                        path: "password"
+                    }),
+                    expect.objectContaining({
+                        msg: "User password configuration is invalid", 
+                        path: "password"
+                    })
+                ])
+            );
+        });
+        
     });
 
     describe("POST /api/login", () => {
@@ -91,7 +123,7 @@ describe("User Routes", () => {
                         password: "Wrongpassword1"
                     });
                 
-                expect(response.body.message).toBe("Access Denied");
+                expect(response.body.errors[0].msg).toBe("Access Denied");
             });
     });
 
@@ -134,6 +166,8 @@ describe("User Routes", () => {
                 .set('Authorization', `Bearer ${token}`);
             
             expect(response.statusCode).toBe(401);
+            expect(response.body.msg).toBe("Unauthorized access");
+
         });
 
         it("should return 401 if no JWT is provided", async () => {
@@ -159,7 +193,6 @@ describe("User Routes", () => {
                 .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
     
-            accessToken = loginResponse.body.accessToken;
             refreshToken = loginResponse.body.refreshToken;
         });
         it("should renew access and refresh token with a valid refresh token", async () => {   
@@ -177,8 +210,8 @@ describe("User Routes", () => {
                 .post('/api/renewAccessToken')
                 .send({});
     
-            expect(response.statusCode).toBe(401);
-            expect(response.body.msg).toBe("Refresh token is required");
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Refresh token is required");
         });
     
         it("should return 403 for an invalid refresh token", async () => {
@@ -188,14 +221,13 @@ describe("User Routes", () => {
                 .post('/api/renewAccessToken')
                 .send({ refreshToken: invalidToken });
     
-            expect(response.statusCode).toBe(403);
-            expect(response.body.msg).toBe("Invalid refresh token");
+            expect(response.statusCode).toBe(401);
+            expect(response.body.errors[0].msg).toBe("Invalid or expired refresh token");
         });
     });
     describe("POST /api/logout", () => {
         let user;
         let accessToken;
-        let refreshToken;
     
         beforeEach(async () => {
             user = new User({
@@ -214,122 +246,107 @@ describe("User Routes", () => {
             refreshToken = loginResponse.body.refreshToken;
         });
     
-        
-        it("should logout the user by deleting the refresh token", async () => {
-            const tokenCheckBeforeLogout = await RefreshToken.findOne({ token: refreshToken });
-            expect(tokenCheckBeforeLogout).not.toBeNull(); 
-    
+        it("should logout the user by deleting random value from agents array", async () => {
             const response = await request(app)
                 .post('/api/logout')
                 .set('Authorization', `Bearer ${accessToken}`) 
-                .send({ refreshToken });
     
             expect(response.statusCode).toBe(200);
             expect(response.body.msg).toBe("Logged out successfully");
-    
-            const tokenCheck = await RefreshToken.findOne({ token: refreshToken });
-            expect(tokenCheck).toBeNull(); // Token should be removed from the database
+        
+            // Verify that the random value was removed from agents array
+            const updatedUser = await User.findById(user._id);
+            expect(updatedUser.agents).toHaveLength(0);  
         });
     
-        it("should return 401 if no refresh token is provided", async () => {
+        it("should return 401 if no access token is provided", async () => {
             const response = await request(app)
                 .post('/api/logout')
-                .set('Authorization', `Bearer ${accessToken}`) 
-                .send({});
+    
+                expect(response.statusCode).toBe(401);
+                expect(response.body.errors[0].msg).toBe("Unauthorized access");
+        });
+    
+        it("should return 401 if an invalid JWT token is provided", async () => {
+            const invalidToken = "someInvalidToken"; 
+    
+            const response = await request(app)
+                .post('/api/logout')
+                .set('Authorization', `Bearer ${invalidToken}`);
     
             expect(response.statusCode).toBe(401);
-            expect(response.body.msg).toBe("Refresh token is required");
-        });
-    
-        it("should return 400 for an invalid refresh token", async () => {
-            const invalidToken = "someInvalidToken";
-    
-            const response = await request(app)
-                .post('/api/logout')
-                .set('Authorization', `Bearer ${accessToken}`) 
-                .send({ refreshToken: invalidToken });
-    
-            expect(response.statusCode).toBe(400);
-            expect(response.body.msg).toBe("Invalid refresh token");
+            expect(response.body.errors[0].msg).toBe("Unauthorized access"); 
         });
     });
-    describe("POST /api/admin/logout-user/:userId", () => {
+    describe("POST /api/admin/logout-user", () => {
         let user;
-        let accessToken;
-        let refreshToken;
-    
+        let userId;
+
         beforeEach(async () => {
             user = new User({
-                name: "Logout User",
-                email: "logoutuser@e.com",
-                password: "Password123",
-
+                name: "Terminate Session User",
+                email: "terminateuser@com",
+                password: "Password123"
             });
             await user.save();
-    
+
             // Log in to get tokens
             const loginResponse = await request(app)
                 .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
     
-            accessToken = loginResponse.body.accessToken;
-            refreshToken = loginResponse.body.refreshToken;
+            //refreshToken = loginResponse.body.refreshToken;
+            userId = user._id; 
         });
-        it("should terminate the user's session and blacklist the token", async () => {
-            // Fetch user from the database after login to get the updated 'agents' field
-            const updatedUser = await User.findById(user._id); 
-            
-            // Check if agents field was automatically populated
-            expect(updatedUser.agents).toBeDefined();
-            expect(updatedUser.agents.length).toBeGreaterThan(0);
-            console.log(updatedUser.agents)
-    
-            // Admin logs out the user and terminates the session
+
+        it("should terminate the user session successfully and remove the agent", async () => {
             const response = await request(app)
-                .post(`/api/admin/logout-user/${user._id}`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ random: updatedUser.agents[0].random });
-                console.log(updatedUser.agents[0].random)
-    
-            console.log(response.body);
+                .post('/api/admin/logout-user')
+                .send({ userId: userId });
 
             expect(response.statusCode).toBe(200);
-            expect(response.body.agentsEmpty).toBe(true);
+            expect(response.body.message).toBe("User session terminated");
+            expect(response.body.userId).toEqual(userId.toString());
 
-            const blacklistedToken = await BlacklistedToken.findOne({ token: accessToken });
-            console.log("Blacklisted Token Found:", blacklistedToken); 
-
-            expect(blacklistedToken).not.toBeNull(); // Token should be blacklisted
+            // Verify that the agent was removed
+            const updatedUser = await User.findById(userId);
+            expect(updatedUser.agents).toHaveLength(0); // Ensure the agents array is now empty
         });
-    
-        it("should return 404 if the user is not found", async () => {
-            // creating a user that is not in a database
-            const nonExistentUserId = new mongoose.Types.ObjectId();
-    
+
+        it("should return 400 if the user id format is invalid", async () => {
+            const invalidUserId = "6713"; 
+
             const response = await request(app)
-                .post(`/api/admin/logout-user/${nonExistentUserId}`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ random: "sessionRandomValue" });
-    
+                .post('/api/admin/logout-user')
+                .send({ userId: invalidUserId });
+
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].message).toBe("Invalid user ID format");
+        });
+
+        it("should return 404 if the user is not found, but id format is valid", async () => {
+            const invalidUserId = "6713c78fd409cad0b5f607c9"; 
+
+            const response = await request(app)
+                .post('/api/admin/logout-user')
+                .send({ userId: invalidUserId });
+
             expect(response.statusCode).toBe(404);
-            expect(response.body.message).toBe("User not found");
+            expect(response.body.errors[0].message).toBe("User not found");
         });
-    
-        it("should return 401 if the authorization token is not provided", async () => {
-            const user = new User({
-                name: "Admin User",
-                email: "adminuser@example.com",
-                password: await bcrypt.hash("Password123", 10),
-                agents: [{ random: "sessionRandomValue" }]
+
+        it("should return 500 if there is a server error", async () => {
+            // Mock the User.findById method to throw an error
+            jest.spyOn(User, 'findById').mockImplementationOnce(() => {
+                throw new Error("Database error");
             });
-            await user.save();
-    
+
             const response = await request(app)
-                .post(`/api/admin/logout-user/${user._id}`)
-                .send({ random: "sessionRandomValue" });
-    
-            expect(response.statusCode).toBe(401);
-            expect(response.body.message).toBe("Authorization token is required");
+                .post('/api/admin/logout-user')
+                .send({ userId: userId });
+
+            expect(response.statusCode).toBe(500);
+            expect(response.body.errors[0].message).toBe("Error logging out user");
         });
-    });  
+    });
 });
