@@ -28,23 +28,8 @@ const PORT = process.env.PORT || 3000;
 // middleware
 app.use(express.json());
 app.use(cookieParser("jwt learning")); // it makes the cookies easily readable from the request.cookies
-app.use(
-    session({
-        name: "connect.sid",
-        secret: secret,
-        saveUninitialized: false, // false means only when we modife session data ogbect, data will be stored to the session store 
-        resave: false, // false means it will not resave cookies every time, expired date wil stay the same
-        cookie: {
-            maxAge: 60000 * 60 // 60000 mlsec = 60 sec = 1 min, 60000 * 60 = 1 hour
-        },
-        store: MongoStore.create({
-            //client: mongoose.connection.getClient()
-            mongoUrl:mongoUri
-    })
-    })
-);
+
 app.use(passport.initialize());
-app.use(passport.session()); // attaches dynamic user property to the request object, to know who the user is
 
 passportConfig(passport);
 
@@ -63,6 +48,14 @@ app.use((req, res, next) => {
             msg: "Resource not found. The URL you are trying to access does not exist."
         }]
     });
+});
+
+// Custom error handler for JWT Unauthorized errors
+app.use((err, req, res, next) => {
+    if (err.name === 'UnauthorizedError') {
+        return res.status(401).json({ errors: [{ msg: 'Invalid Token' }] });
+    }
+    return next(err);  // pass error to global error handler if it's not an UnauthorizedError
 });
 
 // Global error handler for 500 - for internal server errors

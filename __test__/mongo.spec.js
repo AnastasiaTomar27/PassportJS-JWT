@@ -425,76 +425,62 @@ describe("User Routes", () => {
             expect(response.body.errors[0].msg).toBe("Unauthorized access"); 
         });
     });
-    // describe("POST /api/admin/logout-user", () => {
-    //     let user;
-    //     let userId;
+    describe("POST /api/admin/logout-user", () => {
+        let user;
+        let userId;
 
-    //     beforeEach(async () => {
-    //         user = new User({
-    //             name: "Terminate Session User",
-    //             email: "terminateuser@com",
-    //             password: "Password123"
-    //         });
-    //         await user.save();
+        beforeEach(async () => {
+            user = new User({
+                name: "Terminate Session User",
+                email: "terminateuser@com",
+                password: "Password123"
+            });
+            await user.save();
 
-    //         // Log in to get tokens
-    //         const loginResponse = await request(app)
-    //             .post('/api/login')
-    //             .send({ email: user.email, password: "Password123" });
+            // Log in to get tokens
+            const loginResponse = await request(app)
+                .post('/api/login')
+                .send({ email: user.email, password: "Password123" });
     
-    //         //refreshToken = loginResponse.body.refreshToken;
-    //         userId = user._id; 
-    //     });
+            //refreshToken = loginResponse.body.refreshToken;
+            userId = user._id; 
+        });
 
-    //     it("should terminate the user session successfully and remove the agent", async () => {
-    //         const response = await request(app)
-    //             .post('/api/admin/logout-user')
-    //             .send({ userId: userId });
+        it("should terminate the user session successfully and remove the agent", async () => {
+            const response = await request(app)
+                .post('/api/admin/logout-user')
+                .send({ userId: userId });
 
-    //         expect(response.statusCode).toBe(200);
-    //         expect(response.body.data.msg).toBe("User session terminated");
-    //         expect(response.body.data).toHaveProperty('email', 'terminateuser@com');
+            expect(response.statusCode).toBe(200);
+            expect(response.body.data.msg).toBe("User session terminated");
+            expect(response.body.data).toHaveProperty('email', 'terminateuser@com');
 
 
-    //         // Verify that the agent was removed
-    //         const updatedUser = await User.findById(userId);
-    //         expect(updatedUser.agents).toHaveLength(0); // Ensure the agents array is now empty
-    //     });
+            // Verify that the agent was removed
+            const updatedUser = await User.findById(userId);
+            expect(updatedUser.agents).toHaveLength(0); // Ensure the agents array is now empty
+        });
 
-    //     it("should return 400 if the user id format is invalid", async () => {
-    //         const invalidUserId = "6713"; 
+        it("should return 400 if the user id format is invalid", async () => {
+            const invalidUserId = "6713"; 
 
-    //         const response = await request(app)
-    //             .post('/api/admin/logout-user')
-    //             .send({ userId: invalidUserId });
+            const response = await request(app)
+                .post('/api/admin/logout-user')
+                .send({ userId: invalidUserId });
 
-    //         expect(response.statusCode).toBe(400);
-    //         expect(response.body.errors[0].msg).toBe("Invalid user ID format");
-    //     });
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Invalid user ID format");
+        });
 
-    //     it("should return 404 if the user is not found, but id format is valid", async () => {
-    //         const invalidUserId = "6713c78fd409cad0b5f607c9"; 
+        it("should return 404 if the user is not found, but id format is valid", async () => {
+            const invalidUserId = "6713c78fd409cad0b5f607c9"; 
 
-    //         const response = await request(app)
-    //             .post('/api/admin/logout-user')
-    //             .send({ userId: invalidUserId });
+            const response = await request(app)
+                .post('/api/admin/logout-user')
+                .send({ userId: invalidUserId });
 
-    //         expect(response.statusCode).toBe(404);
-    //         expect(response.body.errors[0].msg).toBe("User not found");
-    //     });
-
-    //     it("should return 500 if there is a server error", async () => {
-    //         // Mock the User.findById method to throw an error
-    //         jest.spyOn(User, 'findById').mockImplementationOnce(() => {
-    //             throw new Error("Database error");
-    //         });
-
-    //         const response = await request(app)
-    //             .post('/api/admin/logout-user')
-    //             .send({ userId: userId });
-
-    //         expect(response.statusCode).toBe(500);
-    //         expect(response.body.errors[0].msg).toBe("Error logging out user");
-    //     });
-    // });
+            expect(response.statusCode).toBe(404);
+            expect(response.body.errors[0].msg).toBe("User not found");
+        });
+    });
 });

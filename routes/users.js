@@ -6,7 +6,6 @@ const passport = require('passport');
 
 router.post("/signup", userRegister);
 router.post('/login', login);
-//router.get('/profile', passport.authenticate("jwt", { session: false }), userProfile);
 
 router.get('/profile', (req, res, next) => {
     passport.authenticate('jwt', { session: false }, (err, user, info) => {
@@ -43,7 +42,7 @@ router.post('/logout', (req, res, next) => {
         next();
     })(req, res, next);
 }, logout);
-//router.post('/admin/logout-user', terminateSession);
+router.post('/admin/logout-user', terminateSession);
 
 
 module.exports = router;
