@@ -17,7 +17,8 @@ exports.userRegister = [
                 const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
                 if (!passwordRegex.test(value)) {
                     throw new Error(); }
-                }).withMessage("User password configuration is invalid")  
+                }).withMessage("User password configuration is invalid"),  
+        body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role') 
         ],
         async (request, response) => {
             const result = validationResult(request);
@@ -38,7 +39,8 @@ exports.userRegister = [
                             data: {
                                 name: user.name,
                                 email: user.email,
-                                userId: user.id
+                                userId: user.id,
+                                role: user.role
                             }
                         });                    
                     })
@@ -57,17 +59,11 @@ exports.userRegister = [
         }
 ]
 
-
 exports.login = [
     // Validation middlaware
     [
         body("email").notEmpty().isString(),
-        body("password").notEmpty().isString()
-        .custom(async (value) => {
-            const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
-            if (!passwordRegex.test(value)) {
-                throw new Error(); }
-            }).withMessage("User password configuration is invalid")
+        body("password").notEmpty()
     ],
     // Checking validation results
     async (request, response, next) => {
@@ -247,8 +243,8 @@ exports.terminateSession = async (req,res) => {
 
         console.log("Random value found:", random);
 
-        // Remove the session from the agents array
-        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        user.agents = []  //- Can I do it like that?
+        //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
         console.log("User agents after:", user.agents);
 

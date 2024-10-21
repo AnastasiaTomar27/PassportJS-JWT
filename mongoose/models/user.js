@@ -19,11 +19,11 @@ const UserSchema = new mongoose.Schema({
         min: 4,
         max: 20
     },
-    // role: {
-    //     type: mongoose.Schema.Types.String,
-    //     enum: ['user', 'admin'],
-    //     default: 'user'
-    // },
+    role: {
+        type: mongoose.Schema.Types.String,
+        enum: ['user', 'admin'],
+        default: 'user'
+    },
     agents: {
         type: Array,
         default: [] 

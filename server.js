@@ -2,7 +2,7 @@ require('module-alias/register')
 const path = require('path')
 require('dotenv').config({path: path.resolve('config/dev.env')})
 const express = require("express");
-const session = require('express-session');
+//const session = require('express-session');
 const passport = require('passport')
 require('@mongooseConnection')
 const { connectDB } = require('@mongooseConnection')
@@ -50,15 +50,6 @@ app.use((req, res, next) => {
     });
 });
 
-// Custom error handler for JWT Unauthorized errors
-app.use((err, req, res, next) => {
-    if (err.name === 'UnauthorizedError') {
-        return res.status(401).json({ errors: [{ msg: 'Invalid Token' }] });
-    }
-    return next(err);  // pass error to global error handler if it's not an UnauthorizedError
-});
-
-// Global error handler for 500 - for internal server errors
 app.use((err, req, res, next) => {
     res.status(500).json({
         errors: [{

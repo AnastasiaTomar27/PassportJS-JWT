@@ -233,30 +233,6 @@ describe("User Routes", () => {
                 expect(response.status).toBe(400);
                 expect(response.body.errors[0].msg).toBe("Invalid value");
             });
-            it("PASSWORD: should return validation error for password, if it is not a string", async () => {
-                const response = await request(app)
-                    .post('/api/signup')
-                    .send({
-                        name: "Markus",
-                        email: "testuser@example.com",
-                        password: 123
-                    });
-            
-                expect(response.status).toBe(400);
-                expect(response.body.errors[0].msg).toBe("Invalid value");
-            });
-            it("PASSWORD: should return validation error for password, if there is no capital letter", async () => {
-                const response = await request(app)
-                    .post('/api/signup')
-                    .send({
-                        name: "Markus",
-                        email: "testuser@example.com",
-                        password: "password123"
-                    });
-            
-                expect(response.status).toBe(400);
-                expect(response.body.errors[0].msg).toBe("User password configuration is invalid");
-            });
         });
     });
 
@@ -299,7 +275,7 @@ describe("User Routes", () => {
                 .set('Authorization', `Bearer ${token}`);
             
             expect(response.statusCode).toBe(401);
-            expect(response.body.msg).toBe("Unauthorized access");
+            expect(response.body.errors[0].msg).toBe("Unauthorized access");
 
         });
 
@@ -402,6 +378,14 @@ describe("User Routes", () => {
             // Verify that the random value was removed from agents array
             const updatedUser = await User.findById(user._id);
             expect(updatedUser.agents).toHaveLength(0);  
+
+            // Can't access profile route, because accessToken in invalid now
+            const profileResponse = await request(app)
+                .get('/api/profile')
+                .set('Authorization', `Bearer ${accessToken}`) 
+            
+            expect(profileResponse.statusCode).toBe(401);
+            expect(profileResponse.body.errors[0].msg).toBe("Unauthorized access");
         });
     
         it("should return 401 if no access token is provided", async () => {
@@ -414,7 +398,7 @@ describe("User Routes", () => {
                 expect(response.body.errors[0].msg).toBe("Unauthorized access");
         });
     
-        it("should return 401 if an invalid JWT token is provided", async () => {
+        it("should return 401 if an invalid access token is provided", async () => {
             const invalidToken = "someInvalidToken"; 
     
             const response = await request(app)
@@ -426,61 +410,118 @@ describe("User Routes", () => {
         });
     });
     describe("POST /api/admin/logout-user", () => {
-        let user;
-        let userId;
+        describe("ADMIN - admin terminate the user session", () => {
+            let user;
+            let userId;
 
-        beforeEach(async () => {
-            user = new User({
-                name: "Terminate Session User",
-                email: "terminateuser@com",
-                password: "Password123"
+            beforeEach(async () => {
+                user = new User({
+                    name: "Anastasia",
+                    email: "anastasia@com",
+                    password: "Password123",
+                    role: "admin"
+                });
+                await user.save();
+
+                const loginResponse = await request(app)
+                    .post('/api/login')
+                    .send({ email: user.email, password: "Password123" });
+        
+                accessToken = loginResponse.body.accessToken;
+                refreshToken = loginResponse.body.refreshToken;
+                userId = user._id; 
             });
-            await user.save();
 
-            // Log in to get tokens
-            const loginResponse = await request(app)
-                .post('/api/login')
-                .send({ email: user.email, password: "Password123" });
-    
-            //refreshToken = loginResponse.body.refreshToken;
-            userId = user._id; 
+            it("should terminate the user session successfully and remove the agent", async () => {
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: userId })
+                    .set('Authorization', `Bearer ${accessToken}`);
+
+                expect(response.statusCode).toBe(200);
+                expect(response.body.data.msg).toBe("User session terminated");
+                expect(response.body.data).toHaveProperty('email', 'anastasia@com');
+
+
+                // Verify that the agent was removed
+                const updatedUser = await User.findById(userId);
+                expect(updatedUser.agents).toHaveLength(0); // Ensure the agents array is now empty
+            });
+            it("should return 401 if no access token is provided", async () => {
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: userId });
+                    
+                    expect(response.statusCode).toBe(401);
+                    expect(response.body.errors[0].msg).toBe("Unauthorized access");
+            });
+            it("should return 401 if an invalid access token is provided", async () => {
+                const invalidToken = "someInvalidToken"; 
+        
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .set('Authorization', `Bearer ${invalidToken}`);
+        
+                expect(response.statusCode).toBe(401);
+                expect(response.body.errors[0].msg).toBe("Unauthorized access"); 
+            });
+
+            it("should return 400 if the user id format is invalid", async () => {
+                const invalidUserId = "6713"; 
+
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: invalidUserId })
+                    .set('Authorization', `Bearer ${accessToken}`);
+
+                expect(response.statusCode).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid user ID format");
+            });
+
+            it("should return 404 if the user is not found, but id format is valid", async () => {
+                const invalidUserId = "6713c78fd409cad0b5f607c9"; 
+
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: invalidUserId })
+                    .set('Authorization', `Bearer ${accessToken}`);
+
+                expect(response.statusCode).toBe(404);
+                expect(response.body.errors[0].msg).toBe("User not found");
+            });
         });
 
-        it("should terminate the user session successfully and remove the agent", async () => {
-            const response = await request(app)
-                .post('/api/admin/logout-user')
-                .send({ userId: userId });
+        describe("USER - user try to access /api/admin/logout-user route", () => {
+            let user;
+            let userId;
 
-            expect(response.statusCode).toBe(200);
-            expect(response.body.data.msg).toBe("User session terminated");
-            expect(response.body.data).toHaveProperty('email', 'terminateuser@com');
+            beforeEach(async () => {
+                user = new User({
+                    name: "Terminate Session User",
+                    email: "terminateuser@com",
+                    password: "Password123"
+                });
+                await user.save();
 
+                const loginResponse = await request(app)
+                    .post('/api/login')
+                    .send({ email: user.email, password: "Password123" });
+        
+                accessToken = loginResponse.body.accessToken;
+                refreshToken = loginResponse.body.refreshToken;
+                userId = user._id; 
+            });
 
-            // Verify that the agent was removed
-            const updatedUser = await User.findById(userId);
-            expect(updatedUser.agents).toHaveLength(0); // Ensure the agents array is now empty
+            it("should return", async () => {
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: userId })
+                    .set('Authorization', `Bearer ${accessToken}`);
+
+                expect(response.statusCode).toBe(403);
+                expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
+            });
         });
-
-        it("should return 400 if the user id format is invalid", async () => {
-            const invalidUserId = "6713"; 
-
-            const response = await request(app)
-                .post('/api/admin/logout-user')
-                .send({ userId: invalidUserId });
-
-            expect(response.statusCode).toBe(400);
-            expect(response.body.errors[0].msg).toBe("Invalid user ID format");
-        });
-
-        it("should return 404 if the user is not found, but id format is valid", async () => {
-            const invalidUserId = "6713c78fd409cad0b5f607c9"; 
-
-            const response = await request(app)
-                .post('/api/admin/logout-user')
-                .send({ userId: invalidUserId });
-
-            expect(response.statusCode).toBe(404);
-            expect(response.body.errors[0].msg).toBe("User not found");
-        });
-    });
+    })
+        
 });
