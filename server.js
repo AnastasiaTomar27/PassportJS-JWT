@@ -5,7 +5,7 @@ const express = require("express");
 const session = require('express-session');
 const passport = require('passport')
 require('@mongooseConnection')
-const { connectDB } = require('./mongoose/connection')
+const { connectDB } = require('@mongooseConnection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
 const cookieParser = require('cookie-parser');
@@ -17,6 +17,7 @@ const app = express();
 connectDB()
 
 //Define the MongoDB URI based on the environment
+// MongoDB connection URI (Uniform Resource Identifier)
 const mongoUri = process.env.NODE_ENV === 'test'
   ? 'mongodb://localhost:27017/test' 
   : process.env.MONGODB_URL;
