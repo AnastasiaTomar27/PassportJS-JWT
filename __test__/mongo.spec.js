@@ -3,7 +3,6 @@ const request = require('supertest');
 const mongoose = require('mongoose');
 const User = require('@modelsUser');
 const jwt = require('jsonwebtoken');
-//const bcrypt = require('bcryptjs');
 const { disconnectDB } = require('@mongooseConnection');
 
 afterEach(async () => {
@@ -12,6 +11,7 @@ afterEach(async () => {
 
 afterAll(async () => {
     await disconnectDB();
+    console.log("Disconnected from DB")
 });
 
 describe("User Routes", () => {
@@ -259,8 +259,7 @@ describe("User Routes", () => {
             user = new User({
                 name: "Profile User",
                 email: "profile@example.com",
-                password: "Password123",
-                agents: [{random: "gjsgkjgaiugeavjvgsguagjkdvkjlagv"}]
+                password: "Password123"
             });
             await user.save();
     
@@ -272,7 +271,7 @@ describe("User Routes", () => {
             accessToken = loginResponse.body.accessToken;
             refreshToken = loginResponse.body.refreshToken;
         });
-        it("should return the user profile when authenticated with JWT", async () => { 
+        it("should return the user profile when authenticated with access token", async () => { 
             const response = await request(app)
                 .get('/api/profile')
                 .set('Authorization', `Bearer ${accessToken}`);
@@ -281,7 +280,7 @@ describe("User Routes", () => {
             expect(response.body.data).toHaveProperty('email', 'profile@example.com');
             expect(response.body.data).not.toHaveProperty('password');  // Password should be excluded
         });
-        it("should return status code 401 when authenticated with invalid JWT", async () => {
+        it("should return status code 401 when authenticated with invalid access token", async () => {
             const token = jwt.sign({ _id: user._id, random: "hello"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
 
             const response = await request(app)
@@ -293,7 +292,7 @@ describe("User Routes", () => {
 
         });
 
-        it("should return 401 if no JWT is provided", async () => {
+        it("should return 401 if no access token is provided", async () => {
             const response = await request(app).get('/api/profile');
             expect(response.statusCode).toBe(401);
         });
@@ -308,6 +307,7 @@ describe("User Routes", () => {
                 name: "Token User",
                 email: "tokenuser@ex.com",
                 password: "Password123",
+                role: "user"
             });
             await user.save();
     
@@ -368,7 +368,7 @@ describe("User Routes", () => {
             user = new User({
                 name: "Logout User",
                 email: "logoutuser@e.com",
-                password: "Password123",
+                password: "Password123"
             });
             await user.save();
     

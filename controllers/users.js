@@ -208,10 +208,12 @@ exports.logout = async (req, res) => {
     try {
         const random = req.user.agents.find(agent => agent.random)?.random;
 
+        console.log("random before logout", random)
         if (!random) {
             return res.status(401).json({ errors: [{msg: "Unauthorized access."}] });
         }
         req.user.agents = req.user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        console.log("agents after deleting random", req.user.agents)
         await req.user.save();
         return res.status(200).json({ msg: "Logged out successfully" });
 
@@ -242,8 +244,7 @@ exports.terminateSession = async (req,res) => {
 
         console.log("Random value found:", random);
 
-        user.agents = []  //- Can I do it like that?
-        //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
         console.log("User agents after:", user.agents);
 

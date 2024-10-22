@@ -53,7 +53,7 @@ module.exports = (passport) => {
 
                 // Check for random field in the payload
                 const validSession = user.agents.some(agent => agent.random === jwt_payload.random);
-
+                console.log("random in passport", jwt_payload.random)
                 if (!validSession) {
                     // invalid token
                     return done(null, false);
