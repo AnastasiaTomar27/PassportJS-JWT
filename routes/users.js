@@ -57,7 +57,7 @@ router.post('/admin/logout-user', (req, res, next) => {
         req.user = user;
         next();
     })(req, res, next);
-}, restrict('admin'), terminateSession);
+}, restrict('1534'), terminateSession);
 
 
 module.exports = router;

@@ -11,14 +11,14 @@ const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min;
 exports.userRegister = [
         [
         body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
-        body("email").notEmpty().isLength({ max: 30 }).withMessage('Email must be maximum of 30 characters.').isString(),
+        body("email").notEmpty().isLength({ max: 30 }).withMessage('Email must be maximum of 30 characters.').isString().isEmail(),
         body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
             .custom(async (value) => {
                 const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
                 if (!passwordRegex.test(value)) {
                     throw new Error(); }
                 }).withMessage("User password configuration is invalid"),  
-        body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role') 
+        body("role").optional().isIn(['user', '1534']).withMessage('Invalid role') 
         ],
         async (request, response) => {
             const result = validationResult(request);
@@ -39,8 +39,7 @@ exports.userRegister = [
                             data: {
                                 name: user.name,
                                 email: user.email,
-                                userId: user.id,
-                                role: user.role
+                                userId: user.id
                             }
                         });                    
                     })
@@ -62,7 +61,7 @@ exports.userRegister = [
 exports.login = [
     // Validation middlaware
     [
-        body("email").notEmpty().isString(),
+        body("email").notEmpty().isString().isEmail(),
         body("password").notEmpty()
     ],
     // Checking validation results
