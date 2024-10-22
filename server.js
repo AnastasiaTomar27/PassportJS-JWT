@@ -29,7 +29,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cookieParser("jwt learning")); // it makes the cookies easily readable from the request.cookies
 
-app.use(passport.initialize());
+app.use(passport.initialize()); //  import and initialize Passport globally so that it's available across all routes
 
 passportConfig(passport);
 

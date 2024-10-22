@@ -197,7 +197,7 @@ describe("User Routes", () => {
             await user.save();
         });
         describe("Logging with valid credentials", () => {
-            it("should login a user and return a JWT token", async () => {
+            it("should login a user and return access and refresh tokens", async () => {
                 // login user
                 const response = await request(app)
                     .post('/api/login')
@@ -209,6 +209,7 @@ describe("User Routes", () => {
                 expect(response.statusCode).toBe(200);
                 expect(response.body.msg).toBe("Logged in successfully");
                 expect(response.body.accessToken).toBeDefined();
+                expect(response.body.refreshToken).toBeDefined();
             });
         })
         describe("Logging with invalid credentials", () => {
@@ -295,6 +296,7 @@ describe("User Routes", () => {
         it("should return 401 if no access token is provided", async () => {
             const response = await request(app).get('/api/profile');
             expect(response.statusCode).toBe(401);
+            expect(response.body.errors[0].msg).toBe("Unauthorized access");
         });
     });
     describe("POST /api/renewAccessToken", () => {

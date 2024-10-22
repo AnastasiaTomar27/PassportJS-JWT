@@ -15,7 +15,9 @@
     "@passport": "config/passport.js",
     "@routesUsers": "routes/users.js",
     "@middlewareAuthenticateToken": "middleware/authenticateToken.js",
-    "@server": "server.js"
+    "@server": "server.js",
+    "@middlewareRestrict": "middleware/restrict",
+    "@middlewareAuthenticateJWT": "middleware/authenticateJWT"
   },
   "_moduleDirectories": [
     "src",
