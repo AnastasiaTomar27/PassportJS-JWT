@@ -1,6 +1,5 @@
 const app = require('@server');
 const request = require('supertest');
-const mongoose = require('mongoose');
 const User = require('@modelsUser');
 const jwt = require('jsonwebtoken');
 const { disconnectDB } = require('@mongooseConnection');
@@ -29,6 +28,7 @@ describe("User Routes", () => {
             expect(response.body.success).toBe(true);
             expect(response.body.data).toHaveProperty('email', 'testuser@example.com');
         });
+        // it will not check if its really an admin, should I send role in response or just change the logic in register route? 
         it("should create a new user and return 201, ROLE: 1534 - means ADMIN", async () => {
             const response = await request(app)
                 .post('/api/signup')
@@ -136,6 +136,18 @@ describe("User Routes", () => {
                 expect(response.status).toBe(400);
                 expect(response.body.errors[0].msg).toBe("Invalid value");
             });
+            it("EMAIL: should return validation error for email, if it doesn't contain @", async () => {
+                const response = await request(app)
+                    .post('/api/signup')
+                    .send({
+                        name: "Markus",
+                        email: "markusgmail.com",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(400);
+                expect(response.body.errors[0].msg).toBe("Invalid value");
+            });
             it("PASSWORD: should return validation error for password, if it is empty", async () => {
                 const response = await request(app)
                     .post('/api/signup')
@@ -213,11 +225,21 @@ describe("User Routes", () => {
             });
         })
         describe("Logging with invalid credentials", () => {
+            it("should return status 401 and error Acecc Denied", async () => {
+                const response = await request(app)
+                    .post('/api/login')
+                    .send({
+                        email: "user@gmail.com",
+                        password: "Password123"
+                    });
+            
+                expect(response.status).toBe(401);
+                expect(response.body.errors[0].msg).toBe("Access Denied");
+            });
             it("EMAIL: should return validation error for email, if it is empty", async () => {
                 const response = await request(app)
-                    .post('/api/signup')
+                    .post('/api/login')
                     .send({
-                        name: "Markus",
                         password: "Password123"
                     });
             
@@ -227,9 +249,8 @@ describe("User Routes", () => {
             
             it("EMAIL: should return validation error for email, if it is not a string", async () => {
                 const response = await request(app)
-                    .post('/api/signup')
+                    .post('/api/login')
                     .send({
-                        name: "Markus",
                         email: 123,
                         password: "Password123"
                     });
@@ -239,9 +260,8 @@ describe("User Routes", () => {
             });
             it("PASSWORD: should return validation error for password, if it is empty", async () => {
                 const response = await request(app)
-                    .post('/api/signup')
+                    .post('/api/login')
                     .send({
-                        name: "Markus",
                         email: "testuser@example.com",
                     });
             
@@ -295,6 +315,7 @@ describe("User Routes", () => {
 
         it("should return 401 if no access token is provided", async () => {
             const response = await request(app).get('/api/profile');
+
             expect(response.statusCode).toBe(401);
             expect(response.body.errors[0].msg).toBe("Unauthorized access");
         });
@@ -308,15 +329,16 @@ describe("User Routes", () => {
             user = new User({
                 name: "Token User",
                 email: "tokenuser@ex.com",
-                password: "Password123",
-                role: "user"
+                password: "Password123"
             });
             await user.save();
+            console.log("password after registr", user.password)
     
             // Log in to get tokens
             const loginResponse = await request(app)
                 .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
+                console.log("password after login", user.password)
             
             accessToken = loginResponse.body.accessToken;
             refreshToken = loginResponse.body.refreshToken;
@@ -329,6 +351,15 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(200);
             expect(response.body).toHaveProperty('accessToken');
             expect(response.body).toHaveProperty('refreshToken');
+
+            // now old access token is invalid, user can't aceess profile
+            oldAccessTokenProfileResponse = await request(app)
+                .get('/api/profile')
+                .set('Authorization', `Bearer ${accessToken}`);
+
+                expect(oldAccessTokenProfileResponse.statusCode).toBe(401);
+                expect(oldAccessTokenProfileResponse.body.errors[0].msg).toBe("Unauthorized access");
+
         
             // check if new access token works correctly, should get access to the user profile
             const newAccessToken = response.body.accessToken;
@@ -351,7 +382,7 @@ describe("User Routes", () => {
             expect(response.body.errors[0].msg).toBe("Refresh token is required");
         });
     
-        it("should return 403 for an invalid refresh token", async () => {
+        it("should return 401 for an invalid refresh token", async () => {
             const invalidToken = "someInvalidToken";
     
             const response = await request(app)
@@ -409,7 +440,7 @@ describe("User Routes", () => {
                 .post('/api/logout')
 
                 // 401 - user failed to provide valid authentication credentials 
-                //(in this case, the missing or invalid JWT access token).
+                //(in this case, the missing access token).
                 expect(response.statusCode).toBe(401);
                 expect(response.body.errors[0].msg).toBe("Unauthorized access");
         });
@@ -453,8 +484,7 @@ describe("User Routes", () => {
                 user = new User({
                     name: "User",
                     email: "user@gmail.com",
-                    password: "Password123",
-                    role: "user"
+                    password: "Password123"
                 });
                 await user.save();
 
@@ -545,8 +575,7 @@ describe("User Routes", () => {
                 user = new User({
                     name: "Terminate Session User",
                     email: "terminateuser@gmail.com",
-                    password: "Password123",
-                    role: "user"
+                    password: "Password123"
                 });
                 await user.save();
 

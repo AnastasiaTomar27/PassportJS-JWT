@@ -58,7 +58,7 @@ app.use((err, req, res, next) => {
     });
 });
 
-//app.listen(PORT, () => console.log("Server is running on port " + PORT))
+// Express application server (app.listen()) does not start when I'm running tests
 if (process.env.NODE_ENV !== 'test') {
     app.listen(PORT, () => console.log("Server is running on port " + PORT));
 }

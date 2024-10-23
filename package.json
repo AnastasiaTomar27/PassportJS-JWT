@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "cross-env NODE_ENV=test jest --detectOpenHandles",
-    "start": "nodemon server.js",
-    "start2": "nodemon server2.js"
+    "test": "cross-env NODE_ENV=test jest",
+    "start": "nodemon server.js"
   },
   "_moduleAliases": {
     "@approot": ".",

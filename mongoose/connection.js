@@ -4,7 +4,7 @@
 const mongoose = require('mongoose');
 const { MongoMemoryServer }  = require('mongodb-memory-server');
 
-let mongod = null;
+let mongod = null; // For in-memory MongoDB instance
 let isConnected = false;
 
 
