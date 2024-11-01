@@ -286,6 +286,38 @@ exports.fetchUser = async(req, res) => {
             return res.json({ 
                 data: {
                     msg: 'User orders', 
+                    //userId : user._id, 
+                    name: user.name,
+                    email: user.email,
+                    orders: user.orders.map(order => ({
+                        createdAt: order.createdAt,
+                        products: order.products.map(product => ({
+                            name: product.name,
+                            price: product.price,
+                            createdAt: product.createdAt
+                        }))
+                    }))
+                }
+            });
+    } catch (error) {
+        return res.status(500).send({ error: error.message });
+    }
+}
+
+exports.fetchUserByAdmin = async(req, res) => {
+    try {
+        const user = await User.findById(req.body.userId) // need to check if id is wrong
+            .populate({
+                path: 'orders',
+                populate: {
+                    path: 'products',
+                    model: 'Product'
+                }
+            });
+            console.log(user)
+            return res.json({ 
+                data: {
+                    msg: 'User orders', 
                     userId : user._id, 
                     name: user.name,
                     email: user.email,
@@ -296,6 +328,8 @@ exports.fetchUser = async(req, res) => {
         return res.status(500).send({ error: error.message });
     }
 }
+
+
 
 // exports.addProduct = async (req, res) => {
 //     try {
