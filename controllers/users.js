@@ -7,6 +7,12 @@ const mongoose = require('mongoose');
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
+const Order = require('../mongoose/models/order');
+const Product = require('../mongoose/models/product');
+const userModel = require('../mongoose/models/user')
+const orderModel = require('../mongoose/models/order')
+
+
 
 exports.userRegister = [
         [
@@ -265,6 +271,98 @@ exports.terminateSession = async (req,res) => {
         return res.status(500).json({ errors: [{msg: 'Error logging out user'}] });
       }
 }
+
+exports.fetchUser = async(req, res) => {
+    try {
+        const user = await User.findById(req.body.userId) // need to check if id is wrong
+            .populate({
+                path: 'orders',
+                populate: {
+                    path: 'products',
+                    model: 'Product'
+                }
+            });
+            console.log(user)
+            return res.json({ 
+                data: {
+                    msg: 'User orders', 
+                    userId : user._id, 
+                    name: user.name,
+                    email: user.email,
+                    orders: user.orders
+                }
+            });
+    } catch (error) {
+        return res.status(500).send({ error: error.message });
+    }
+}
+
+// exports.addProduct = async (req, res) => {
+//     try {
+//         const { name, price } = req.body;  
+
+//         const newProduct = new Product({ name, price });
+//         await newProduct.save();  
+
+//         return res.status(201).json({ message: 'Product added successfully', product: newProduct });
+//     } catch (error) {
+//         console.error(error);
+//         return res.status(500).send({ error: error.message });
+//     }
+// };
+
+// exports.createOrder = async (req, res) => {
+//     try {
+//         const { userId, productIds } = req.body;  // Get user ID and product IDs from request body
+
+//         // Create a new order
+//         const newOrder = new Order({ products: productIds });
+//         await newOrder.save();
+
+//         // Update the user with the new order
+//         await User.findByIdAndUpdate(userId, { $push: { orders: newOrder._id } });
+
+//         return res.status(201).json({ message: 'Order created successfully', order: newOrder });
+//     } catch (error) {
+//         console.error(error);
+//         return res.status(500).send({ error: error.message });
+//     }
+// };
+exports.addProduct = async (req, res) => {
+    try {
+        const { name, price } = req.body;  
+
+        const newProduct = new Product({ name, price });
+        await newProduct.save();  
+
+        //res.status(201).json({ message: 'Product added successfully', product: newProduct });
+        let productId = newProduct._id
+
+        // Step 2: Check if the user has an existing order; create one if they don’t
+        let order = await Order.findOne({ user: req.user._id });
+
+        if (!order) {
+            // If the user has no order, create a new one
+            order = new Order({ user: req.user._id, products: [productId] });
+            await order.save();
+
+            await User.findByIdAndUpdate(req.user._id, { $push: { orders: order._id } });
+
+        } else {
+            // If an order exists, add the new product to the products array
+            order.products.push(productId);
+            await order.save();
+        }
+
+        res.send("products added to order")
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: error.message });
+    }
+
+    
+}
+
 
 
 

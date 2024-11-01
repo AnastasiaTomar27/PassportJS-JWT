@@ -27,7 +27,11 @@ const UserSchema = new mongoose.Schema({
     agents: {
         type: Array,
         default: [] 
-    }
+    },
+    orders: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order'
+    }]
 });
 
 //Hash password before saving the user document
