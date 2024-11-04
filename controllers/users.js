@@ -331,19 +331,35 @@ exports.fetchUserByAdmin = async(req, res) => {
 
 
 
+
 // exports.addProduct = async (req, res) => {
 //     try {
-//         const { name, price } = req.body;  
+//         const { name, price } = req.body;
 
+//         // Validate required fields
+//         if (!name || !price) {
+//             return res.status(400).json({ error: 'Product name and price are required' });
+//         }
+
+//         // Create and save the new product
 //         const newProduct = new Product({ name, price });
-//         await newProduct.save();  
+//         await newProduct.save();
 
-//         return res.status(201).json({ message: 'Product added successfully', product: newProduct });
+//         return res.status(201).json({
+//             message: 'Product added successfully',
+//             product: {
+//                 id: newProduct._id,
+//                 name: newProduct.name,
+//                 price: newProduct.price,
+//                 createdAt: newProduct.createdAt
+//             }
+//         });
 //     } catch (error) {
 //         console.error(error);
 //         return res.status(500).send({ error: error.message });
 //     }
 // };
+
 
 // exports.createOrder = async (req, res) => {
 //     try {
@@ -362,6 +378,7 @@ exports.fetchUserByAdmin = async(req, res) => {
 //         return res.status(500).send({ error: error.message });
 //     }
 // };
+
 exports.addProduct = async (req, res) => {
     try {
         const { name, price } = req.body;  
