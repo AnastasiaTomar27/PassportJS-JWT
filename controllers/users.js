@@ -268,32 +268,31 @@ exports.terminateSession = async (req,res) => {
       }
 }
 
-// adding products which will be available in the store
-exports.addProductToTheShop = async (req, res) => {
-    const { name, price } = req.body;
-
-    if (!name || !price) {
-        return res.status(400).json({ errors: [{msg: "Product name and price are required"}] });
-    }
-
+// Admin adds products to the store
+exports.seed = async (req, res) => {
     try {
-        const existingProduct = await Product.findOne({ name });
-        if (existingProduct) {
-            return res.status(400).json({ errors: [{msg: "Product already exists in the store"}] });
+        // Predefined products to be seeded
+        const products = [
+            { name: "Bananas", price: 1.5 },
+            { name: "Strawberry", price: 2.5 },
+            { name: "Apples", price: 1.5 }
+        ];
+
+        // Check if products already exist
+        const existingProducts = await Product.find({ name: { $in: products.map(p => p.name) } });
+
+        if (existingProducts.length > 0) {
+            return res.status(400).json({ errors: [{ msg: "Some products already exist in the store." }] });
         }
 
-        const newProduct = new Product({ name, price });
-        await newProduct.save();
+        const newProducts = await Product.create(products);
         return res.status(201).json({
-            data: {
-                msg: 'Product added to the store', 
-                name: newProduct.name,
-                email: newProduct.price
-            }
+            message: 'Products seeded successfully',
+            data: newProducts
         });
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ errors: [{msg: "Error adding product"}] });
+        console.error("Error seeding products:", error);
+        return res.status(500).json({ errors: [{ msg: "Error seeding products" }] });
     }
 }
 

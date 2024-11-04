@@ -638,52 +638,50 @@ describe("Product and Order Routes with Authentication", () => {
         userAccessToken = loginUserResponse.body.accessToken;
     });
 
-    // ADD PRODUCT TO THE SHOP
-    describe("POST /api/addProductToTheShop", () => {
-        it("should allow an admin to add a product", async () => {
-            const response = await request(app)
-                .post('/api/addProductToTheShop')
-                .send({ name: "Strawberry", price: 4.5 })
-                .set('Authorization', `Bearer ${adminAccessToken}`);
+    // SEED ROUTE
+describe("POST /api/seed", () => {
+    // Test case: Successful seeding by an admin
+    it("should allow an admin to seed products", async () => {
+        const response = await request(app)
+            .post('/api/seed')
+            .set('Authorization', `Bearer ${adminAccessToken}`);
 
-            expect(response.statusCode).toBe(201);
-            expect(response.body.data.msg).toBe("Product added to the store");
-            expect(response.body.data).toHaveProperty("name", "Strawberry");
-        });
-
-        it("should prevent a regular user from adding a product", async () => {
-            const response = await request(app)
-                .post('/api/addProductToTheShop')
-                .send({ name: "Milk", price: 1.2 })
-                .set('Authorization', `Bearer ${userAccessToken}`);
-
-            expect(response.statusCode).toBe(403);
-            expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
-        });
-        it("should respond this message that name and price are required, if admin didn't put them", async () => {
-            const response = await request(app)
-                .post('/api/addProductToTheShop')
-                .send({ price: 1.2 })
-                .set('Authorization', `Bearer ${adminAccessToken}`);
-
-            expect(response.statusCode).toBe(400);
-            expect(response.body.errors[0].msg).toBe("Product name and price are required");
-        });
-        it("should respond this message that the product already exists, if it was added earlier", async () => {
-            const response = await request(app)
-                .post('/api/addProductToTheShop')
-                .send({ name: "strawberry", price: 1.2 })
-                .set('Authorization', `Bearer ${adminAccessToken}`);
-
-            const existingProductResponse = await request(app)
-                .post('/api/addProductToTheShop')
-                .send({ name: "strawberry", price: 1.2 })
-                .set('Authorization', `Bearer ${adminAccessToken}`);
-
-            expect(existingProductResponse.statusCode).toBe(400);
-            expect(existingProductResponse.body.errors[0].msg).toBe("Product already exists in the store");
-        });
+        expect(response.statusCode).toBe(201);
+        expect(response.body.message).toBe("Products seeded successfully");
+        expect(response.body.data).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: "Bananas", price: 1.5 }),
+                expect.objectContaining({ name: "Strawberry", price: 2.5 }),
+                expect.objectContaining({ name: "Apples", price: 1.5 })
+            ])
+        );
     });
+
+    // Test case: Unauthorized access attempt by a regular user
+    it("should prevent a regular user from seeding products", async () => {
+        const response = await request(app)
+            .post('/api/seed')
+            .set('Authorization', `Bearer ${userAccessToken}`);
+
+        expect(response.statusCode).toBe(403);
+        expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
+    });
+
+    // Test case: Partial seeding when some products already exist
+    it("should respond with an error if some products already exist in the store", async () => {
+        await request(app)
+            .post('/api/seed')
+            .set('Authorization', `Bearer ${adminAccessToken}`);
+
+        // adding the same products
+        const response = await request(app)
+            .post('/api/seed')
+            .set('Authorization', `Bearer ${adminAccessToken}`);
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.errors[0].msg).toBe("Some products already exist in the store.");
+    });
+});
 
     // ADD PRODUCT TO ORDER ROUTE
     describe("POST /api/addProductToOrder", () => {
