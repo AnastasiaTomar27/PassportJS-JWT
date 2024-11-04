@@ -9,8 +9,6 @@ const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
 const Order = require('../mongoose/models/order');
 const Product = require('../mongoose/models/product');
-const userModel = require('../mongoose/models/user')
-const orderModel = require('../mongoose/models/order')
 
 
 
@@ -79,7 +77,6 @@ exports.login = [
         }
        
         passport.authenticate("local", async (err, user, info) => { // here i only use passport for user authentication, but don't attach user to the session 
-            //console.log("err, user, info", err, user, info)
             
             if (err) {
                 return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
@@ -234,7 +231,6 @@ exports.terminateSession = async (req,res) => {
     try {
         const { userId } = req.body; 
 
-        // Validate the userId format
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ errors: [{ msg: 'Invalid user ID format' }] });
         }
@@ -254,7 +250,7 @@ exports.terminateSession = async (req,res) => {
 
         console.log("User agents after:", user.agents);
 
-        await user.save(); // saving to database without random in agents
+        await user.save(); 
 
         return res.json({ 
             data: {
@@ -272,147 +268,160 @@ exports.terminateSession = async (req,res) => {
       }
 }
 
-exports.fetchUser = async(req, res) => {
-    try {
-        const user = await User.findById(req.body.userId) // need to check if id is wrong
-            .populate({
-                path: 'orders',
-                populate: {
-                    path: 'products',
-                    model: 'Product'
-                }
-            });
-            console.log(user)
-            return res.json({ 
-                data: {
-                    msg: 'User orders', 
-                    //userId : user._id, 
-                    name: user.name,
-                    email: user.email,
-                    orders: user.orders.map(order => ({
-                        createdAt: order.createdAt,
-                        products: order.products.map(product => ({
-                            name: product.name,
-                            price: product.price,
-                            createdAt: product.createdAt
-                        }))
-                    }))
-                }
-            });
-    } catch (error) {
-        return res.status(500).send({ error: error.message });
+// adding products which will be available in the store
+exports.addProductToTheShop = async (req, res) => {
+    const { name, price } = req.body;
+
+    if (!name || !price) {
+        return res.status(400).json({ errors: [{msg: "Product name and price are required"}] });
     }
-}
 
-exports.fetchUserByAdmin = async(req, res) => {
     try {
-        const user = await User.findById(req.body.userId) // need to check if id is wrong
-            .populate({
-                path: 'orders',
-                populate: {
-                    path: 'products',
-                    model: 'Product'
-                }
-            });
-            console.log(user)
-            return res.json({ 
-                data: {
-                    msg: 'User orders', 
-                    userId : user._id, 
-                    name: user.name,
-                    email: user.email,
-                    orders: user.orders
-                }
-            });
-    } catch (error) {
-        return res.status(500).send({ error: error.message });
-    }
-}
-
-
-
-
-// exports.addProduct = async (req, res) => {
-//     try {
-//         const { name, price } = req.body;
-
-//         // Validate required fields
-//         if (!name || !price) {
-//             return res.status(400).json({ error: 'Product name and price are required' });
-//         }
-
-//         // Create and save the new product
-//         const newProduct = new Product({ name, price });
-//         await newProduct.save();
-
-//         return res.status(201).json({
-//             message: 'Product added successfully',
-//             product: {
-//                 id: newProduct._id,
-//                 name: newProduct.name,
-//                 price: newProduct.price,
-//                 createdAt: newProduct.createdAt
-//             }
-//         });
-//     } catch (error) {
-//         console.error(error);
-//         return res.status(500).send({ error: error.message });
-//     }
-// };
-
-
-// exports.createOrder = async (req, res) => {
-//     try {
-//         const { userId, productIds } = req.body;  // Get user ID and product IDs from request body
-
-//         // Create a new order
-//         const newOrder = new Order({ products: productIds });
-//         await newOrder.save();
-
-//         // Update the user with the new order
-//         await User.findByIdAndUpdate(userId, { $push: { orders: newOrder._id } });
-
-//         return res.status(201).json({ message: 'Order created successfully', order: newOrder });
-//     } catch (error) {
-//         console.error(error);
-//         return res.status(500).send({ error: error.message });
-//     }
-// };
-
-exports.addProduct = async (req, res) => {
-    try {
-        const { name, price } = req.body;  
-
-        const newProduct = new Product({ name, price });
-        await newProduct.save();  
-
-        //res.status(201).json({ message: 'Product added successfully', product: newProduct });
-        let productId = newProduct._id
-
-        // Step 2: Check if the user has an existing order; create one if they don’t
-        let order = await Order.findOne({ user: req.user._id });
-
-        if (!order) {
-            // If the user has no order, create a new one
-            order = new Order({ user: req.user._id, products: [productId] });
-            await order.save();
-
-            await User.findByIdAndUpdate(req.user._id, { $push: { orders: order._id } });
-
-        } else {
-            // If an order exists, add the new product to the products array
-            order.products.push(productId);
-            await order.save();
+        const existingProduct = await Product.findOne({ name });
+        if (existingProduct) {
+            return res.status(400).json({ errors: [{msg: "Product already exists in the store"}] });
         }
 
-        res.send("products added to order")
+        const newProduct = new Product({ name, price });
+        await newProduct.save();
+        return res.status(201).json({
+            data: {
+                msg: 'Product added to the store', 
+                name: newProduct.name,
+                email: newProduct.price
+            }
+        });
     } catch (error) {
         console.error(error);
-        res.status(500).send({ error: error.message });
+        return res.status(500).json({ errors: [{msg: "Error adding product"}] });
+    }
+}
+
+// user adds products to his order list
+exports.addProductToOrder = async (req, res) => {
+    const { name } = req.body; 
+
+    if (!name) {
+        return res.status(400).json({ errors: [{msg: "Product name is required"}] });
     }
 
-    
-}
+    try {
+        let order = await Order.findOne({ userId: req.user._id }); // check if user already has order list
+        if (!order) {
+            order = new Order({ 
+                userId: req.user._id,
+                products: [] 
+            });
+        }
+
+        const product = await Product.findOne({ name: name });
+        if (!product) {
+            return res.status(404).json({ errors: [{msg: "Product not found"}] });
+        }
+
+        order.products.push(product._id); // only aads product id
+
+        await order.save();
+
+        // add orders array to the user model
+        const user = req.user;
+        if (!user.order.includes(order._id)) { // check that order is placed only once
+            user.order.push(order._id);
+            await user.save();
+        }
+
+        await order.populate({ // adds full product details (name, price etc)
+            path: 'products'
+        });
+
+        const orderDetails = {
+            createdAt: order.createdAt,
+            products: order.products.map(prod => ({
+                name: prod.name,
+                price: prod.price
+            }))
+        };
+
+        return res.status(201).json({
+            message: 'Product added to order successfully',
+            order: orderDetails 
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ errors: [{msg: "Error adding product to order"}] });
+    }
+};
+
+
+exports.checkMyOrder = async (req, res) => {
+    try {
+        const userId = req.user._id; 
+
+        const user = await User.findById(userId)
+            .populate({
+                path: 'order', 
+                populate: {
+                    path: 'products', 
+                    model: 'Product',
+                }
+            });
+
+        return res.status(200).json({
+            message: 'My order:',
+            data: {
+                name: user.name,
+                email: user.email,
+                order: user.order.map(order => ({
+                    createdAt: order.createdAt,
+                    products: order.products.map(product => ({
+                        name: product.name,
+                        price: product.price,
+                    }))
+                }))
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ errors: [{msg: "Error checking order"}] });
+    }
+};
+
+exports.fetchUserByAdmin = async (req, res) => {
+    try {
+        const userId = req.body.userId;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ errors: [{msg: "Invalid user ID format" }] });
+        }
+
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ errors: [{ msg: 'User not found' }] });
+        } 
+        
+        await user.populate({
+                path: 'order',
+                populate: {
+                    path: 'products',
+                    model: 'Product',
+                }
+            });
+
+        return res.status(200).json({
+            data: {
+                msg: 'User information and orders:',
+                userId: user._id,
+                name: user.name,
+                email: user.email,
+                order: user.order
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ errors: [{msg: 'Error fetching user with orders'}] });
+    }
+};
 
 
 

@@ -3,6 +3,8 @@ const request = require('supertest');
 const User = require('@modelsUser');
 const jwt = require('jsonwebtoken');
 const { disconnectDB } = require('@mongooseConnection');
+const Product = require('../mongoose/models/product');
+const Order = require('../mongoose/models/order');
 
 afterEach(async () => {
     await User.deleteMany();
@@ -274,7 +276,6 @@ describe("User Routes", () => {
     describe("GET /api/profile", () => {
         let user;
         let accessToken;
-        let refreshToken;
 
         beforeEach(async () => {
             user = new User({
@@ -600,4 +601,213 @@ describe("User Routes", () => {
          });
     });
         
+});
+
+describe("Product and Order Routes with Authentication", () => {
+    let admin, user;
+    let adminAccessToken, userAccessToken;
+
+    beforeEach(async () => {
+        // Creating an admin
+        admin = new User({
+            name: "Admin",
+            email: "admin@example.com",
+            password: "Password123",
+            role: "1534"
+        });
+        await admin.save();
+
+        const loginAdminResponse = await request(app)
+            .post('/api/login')
+            .send({ email: admin.email, password: "Password123" });
+
+        adminAccessToken = loginAdminResponse.body.accessToken;
+
+        // Creating a regular user
+        user = new User({
+            name: "Regular User",
+            email: "user@example.com",
+            password: "Password123"
+        });
+        await user.save();
+
+        const loginUserResponse = await request(app)
+            .post('/api/login')
+            .send({ email: user.email, password: "Password123" });
+
+        userAccessToken = loginUserResponse.body.accessToken;
+    });
+
+    // ADD PRODUCT TO THE SHOP
+    describe("POST /api/addProductToTheShop", () => {
+        it("should allow an admin to add a product", async () => {
+            const response = await request(app)
+                .post('/api/addProductToTheShop')
+                .send({ name: "Strawberry", price: 4.5 })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(201);
+            expect(response.body.data.msg).toBe("Product added to the store");
+            expect(response.body.data).toHaveProperty("name", "Strawberry");
+        });
+
+        it("should prevent a regular user from adding a product", async () => {
+            const response = await request(app)
+                .post('/api/addProductToTheShop')
+                .send({ name: "Milk", price: 1.2 })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
+        });
+        it("should respond this message that name and price are required, if admin didn't put them", async () => {
+            const response = await request(app)
+                .post('/api/addProductToTheShop')
+                .send({ price: 1.2 })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Product name and price are required");
+        });
+        it("should respond this message that the product already exists, if it was added earlier", async () => {
+            const response = await request(app)
+                .post('/api/addProductToTheShop')
+                .send({ name: "strawberry", price: 1.2 })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            const existingProductResponse = await request(app)
+                .post('/api/addProductToTheShop')
+                .send({ name: "strawberry", price: 1.2 })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(existingProductResponse.statusCode).toBe(400);
+            expect(existingProductResponse.body.errors[0].msg).toBe("Product already exists in the store");
+        });
+    });
+
+    // ADD PRODUCT TO ORDER ROUTE
+    describe("POST /api/addProductToOrder", () => {
+        let product;
+
+        beforeEach(async () => {
+            product = new Product({ name: "Apples", price: 30 });
+            await product.save();
+        });
+
+        it("should allow a user to add a product to their order", async () => {
+            const response = await request(app)
+                .post('/api/addProductToOrder')
+                .send({ name: "Apples" })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(201);
+            expect(response.body.message).toBe("Product added to order successfully");
+            expect(response.body.order.products[0]).toHaveProperty("name", "Apples");
+        });
+
+        it("should prevent access without authentication", async () => {
+            const response = await request(app)
+                .post('/api/addProductToOrder')
+                .send({ name: "Apples" });
+
+            expect(response.statusCode).toBe(401);
+            expect(response.body.errors[0].msg).toBe("Unauthorized access");
+        });
+        it("should respond this message that the name of the product is required, if user didn't put it", async () => {
+            const response = await request(app)
+                .post('/api/addProductToOrder')
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Product name is required");
+        });
+        it("should respond this message that the product is not in the store, if there is no one", async () => {
+            const response = await request(app)
+                .post('/api/addProductToOrder')
+                .send({ name: "Bread" })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(404);
+            expect(response.body.errors[0].msg).toBe("Product not found");
+        });
+    });
+
+    // CHECK MY ORDER ROUTE
+    describe("GET /api/checkMyOrder", () => {
+        it("should allow a user to check their order", async () => {
+            await request(app)
+                .post('/api/addProductToOrder')
+                .send({ name: "Apples" })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            const response = await request(app)
+                .get('/api/checkMyOrder')
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(200);
+            expect(response.body.message).toBe("My order:");
+            expect(Array.isArray(response.body.data.order)).toBe(true);
+
+            const order = response.body.data.order[0];
+            expect(order.products.length).toBeGreaterThan(0);
+
+            const applesProduct = order.products.find(product => product.name === "Apples");
+            expect(applesProduct).toBeDefined(); 
+            expect(applesProduct).toHaveProperty("name", "Apples");
+            expect(applesProduct).toHaveProperty("price", 30); 
+        });
+
+        it("should prevent access without authentication", async () => {
+            const response = await request(app).get('/api/checkMyOrder');
+
+            expect(response.statusCode).toBe(401);
+            expect(response.body.errors[0].msg).toBe("Unauthorized access");
+        });
+    });
+
+    // FETCH USER BY ADMIN ROUTE
+    describe("GET /api/admin/fetchUser", () => {
+        let userId;
+
+        it("should allow an admin to fetch a user's details and orders", async () => {
+            const response = await request(app)
+                .get('/api/admin/fetchUser')
+                .send({ userId: user._id })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(200);
+            expect(response.body.data).toHaveProperty("name", user.name);
+            expect(response.body.data).toHaveProperty("email", user.email);
+        });
+
+        it("should prevent a regular user from accessing admin endpoint", async () => {
+            const response = await request(app)
+                .get('/api/admin/fetchUser')
+                .send({ userId: user._id })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
+        });
+        it("should respond with a message that user Id is not valid", async () => {
+            const userId = "558"
+            const response = await request(app)
+                .get('/api/admin/fetchUser')
+                .send({ userId: userId })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Invalid user ID format");
+        });
+        it("should respond with a message - user not found", async () => {
+            const userId = "67285c95cb334ac35d7cd968"
+            const response = await request(app)
+                .get('/api/admin/fetchUser')
+                .send({ userId: userId })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(404);
+            expect(response.body.errors[0].msg).toBe('User not found');
+        });
+    });
 });
