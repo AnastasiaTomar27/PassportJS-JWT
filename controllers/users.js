@@ -9,7 +9,8 @@ const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
 const Order = require('../mongoose/models/order');
 const Product = require('../mongoose/models/product');
-
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 
 exports.userRegister = [
@@ -43,7 +44,8 @@ exports.userRegister = [
                             data: {
                                 name: user.name,
                                 email: user.email,
-                                userId: user.id
+                                userId: user.id,
+                                //isMfaActive: false
                             }
                         });                    
                     })
@@ -86,14 +88,14 @@ exports.login = [
                 return response.status(401).send({ errors: [{ msg: "Access Denied" }] });
             }
 
-            const sessionRandom = crypto.randomBytes(16).toString('hex');
+            const randomIdentifier = crypto.randomBytes(16).toString('hex');
 
-            if (!user.agents) {
-                user.agents = [];
+            if (!user.tempAgents) {
+                user.tempAgents = [];
             }
             
-            const random = sessionRandom
-            user.agents.push({
+            const random = randomIdentifier
+            user.tempAgents.push({
                 random
             })
 
@@ -106,35 +108,119 @@ exports.login = [
 
             const payload = { _id: user._id, random };
 
-            let accessToken, refreshToken;
+            let temporaryToken;
             try {
-                accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
-                refreshToken = jwt.sign(payload, keys2);
+                temporaryToken = jwt.sign(payload, keys, { expiresIn: '5m' });
             } catch (err) {
-                return response.status(500).send({ errors: [{msg: "Error generating tokens"}] });
+                return response.status(500).send({ errors: [{msg: "Error generating temporary token"}] });
             }
 
-            try {
-                return response.json({
-                    status: true,
-                    msg: "Logged in successfully",
-                    accessToken: accessToken,
-                    refreshToken: refreshToken,
-                    data: {
-                        user: user.name,
-                        email: user.email,
-                        _id: user._id
-                    }
-                });
-            } catch (error) {
-                console.log("Error in saving refresh token:", error);
-                return response.status(500).send({ errors: [{msg: "Server error"}] });
-            }
-        
+            const needs2FASetup = !user.twoFactorSecret;
+
+            return response.json({
+                msg: needs2FASetup ? "Please set up Two-Factor Authentication." : "TOTP required",
+                temporaryToken,  // for TOTP verification
+                data: { userId: user._id, needs2FASetup } 
+            });
+
         })(request, response, next);
     }
     
 ];  
+
+// it saves a 2FA secret for the user (twoFactorSecret) and create QR code
+exports.setup2FA = async (req, res) => {
+    try {
+        const user = req.user;
+
+        if (user.twoFactorSecret) {
+            return res.status(400).json({ errors: [{ msg: "2FA is already set up" }] });
+        }
+
+        var secret = speakeasy.generateSecret();
+        user.twoFactorSecret = secret.base32;
+        //user.isMfaActive = true;
+        await user.save();
+        const url = speakeasy.otpauthURL({
+            secret: secret.base32,
+            label: `${user.name}`,
+            issuer: "www.anastasia.com",
+            encoding: "base32"
+        });
+        const qrImageUrl = await QRCode.toDataURL(url);
+        res.status(200).json({
+            secret: secret.base32,
+            QRCode: qrImageUrl
+        })
+    } catch (error) {
+        res.status(500).json({ errors: [{ msg: "Error setting up 2FA" }] });
+    }
+}
+
+exports.verify2FA = async (req, res) => {
+    const { totp } = req.body;
+
+    if (!totp) {
+        return res.status(422).send({ errors: [{ msg: "TOTP is required" }] });
+    }
+
+    const user = req.user;
+    if (!user || !user.twoFactorSecret) {
+        return res.status(401).send({ message: "User or TOTP secret not found" });
+    }
+
+    const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: "base32",
+        token: totp
+    });
+
+    if (verified) {
+        const sessionRandom = crypto.randomBytes(16).toString('hex');
+
+        if (!user.agents) {
+            user.agents = [];
+        }
+        
+        const random = sessionRandom;
+        user.agents.push({ random });
+
+        try {
+            await user.save(); // Save the updated agents array to the database
+        } catch (saveError) {
+            console.error("Error saving user agents:", saveError);
+            return res.status(500).send({ errors: [{ msg: "Error saving user agents" }] });
+        }
+
+        const payload = { _id: user._id, random, isTemporary: false };
+
+        let accessToken, refreshToken;
+        try {
+            accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+            refreshToken = jwt.sign(payload, keys2);
+        } catch (err) {
+            return res.status(500).send({ errors: [{ msg: "Error generating tokens" }] });
+        }
+
+        return res.status(200).json({
+            status: true,
+            msg: "TOTP validated successfully: user logged in successfully",
+            accessToken,
+            refreshToken,
+            data: {
+                user: user.name,
+                email: user.email,
+                //_id: user._id
+            }
+        });
+
+    } else {
+        res.status(400).json({ message: "TOTP is not correct or expired" });
+    }
+};
+
+
+
 
 exports.userProfile = async (req, res) => {
     return res.status(200).json({
@@ -209,22 +295,31 @@ exports.renewToken = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        const random = req.user.agents.find(agent => agent.random)?.random;
+        // Assume `req.user` already has the decoded JWT payload with `random` attached
+        const currentRandom = req.user.random;
 
-        console.log("random before logout", random)
-        if (!random) {
-            return res.status(401).json({ errors: [{msg: "Unauthorized access."}] });
+        if (!currentRandom) {
+            return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
         }
-        req.user.agents = req.user.agents.filter(agent => agent.random !== random); // will remove random from agents array
-        console.log("agents after deleting random", req.user.agents)
+
+        console.log("Random identifier before logout:", currentRandom);
+
+        // Filter out the agent associated with the current session, leaving others intact
+        req.user.agents = req.user.agents.filter(agent => agent.random !== currentRandom);
+
+        console.log("Agents array after logout:", req.user.agents);
+
+        // Save the updated user document to reflect the session removal
         await req.user.save();
+
         return res.status(200).json({ msg: "Logged out successfully" });
 
     } catch (error) {
-        console.log("Error logging out", error);
-        return res.status(500).json({ errors: [{msg: "Server error"}] });
+        console.error("Error during logout:", error);
+        return res.status(500).json({ errors: [{ msg: "Server error" }] });
     }
 };
+
 
 //Admin Route to Terminate User Sessions
 exports.terminateSession = async (req,res) => {
@@ -298,6 +393,9 @@ exports.seed = async (req, res) => {
 
 // user adds products to his order list
 exports.addProductToOrder = async (req, res) => {
+    if (req.user.isTemporary) {
+        return res.status(403).json({ errors: [{ msg: "Temporary token not permitted for this action" }] });
+    }
     const { name } = req.body; 
 
     if (!name) {

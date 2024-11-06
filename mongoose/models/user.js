@@ -3,24 +3,31 @@ const bcrypt = require('bcryptjs');
 
 const UserSchema = new mongoose.Schema({
     name: {
-        type: mongoose.Schema.Types.String,
+        type: String,
         required: true,
         min: 3
     },
     email: {
-        type:mongoose.Schema.Types.String,
+        type: String,
         required: true,
         unique: true,
         trim: true
     },
     password: {
-        type: mongoose.Schema.Types.String,
+        type: String,
         required: true,
         min: 4,
         max: 20
     },
+    // isMfaActive: {
+    //     type: Boolean,
+    //     required: false
+    // },
+    twoFactorSecret: {
+        type: String
+    },
     role: {
-        type: mongoose.Schema.Types.String,
+        type: String,
         enum: ['user', '1534'], // 15 - admin
         default: 'user'
     },
@@ -28,11 +35,20 @@ const UserSchema = new mongoose.Schema({
         type: Array,
         default: [] 
     },
+    tempAgents: {
+        type: Array,
+        default: [] 
+    },
     order: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Order'
     }]
-});
+    
+    },
+    {
+        timestamps: true
+    }
+);
 
 //Hash password before saving the user document
 UserSchema.pre('save', async function (next) {
