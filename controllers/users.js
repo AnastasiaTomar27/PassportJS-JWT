@@ -137,11 +137,13 @@ exports.setup2FA = async (req, res) => {
             return res.status(400).json({ errors: [{ msg: "2FA is already set up" }] });
         }
 
+        // This secret (secret.base32) is both stored on the server as twoFactorSecret and embedded in a QR code
         var secret = speakeasy.generateSecret();
         user.twoFactorSecret = secret.base32;
-        //user.isMfaActive = true;
+
         await user.save();
-        const url = speakeasy.otpauthURL({
+        const url = speakeasy.otpauthURL({ //otpauthURL is a specially formatted URL that encodes the twoFactorSecret along with other information like the user's name and the issuer's name (my website).
+            //otpauth://totp/Test%20User?secret=SECRET123&issuer=www.anastasia.com
             secret: secret.base32,
             label: `${user.name}`,
             issuer: "www.anastasia.com",
@@ -149,7 +151,7 @@ exports.setup2FA = async (req, res) => {
         });
         const qrImageUrl = await QRCode.toDataURL(url);
         res.status(200).json({
-            secret: secret.base32,
+            //secret: secret.base32,
             QRCode: qrImageUrl
         })
     } catch (error) {
@@ -165,8 +167,8 @@ exports.verify2FA = async (req, res) => {
     }
 
     const user = req.user;
-    if (!user || !user.twoFactorSecret) {
-        return res.status(401).send({ message: "User or TOTP secret not found" });
+    if (!user.twoFactorSecret) {
+        return res.status(401).send({ message: "TOTP secret not found" });
     }
 
     const verified = speakeasy.totp.verify({
@@ -185,14 +187,16 @@ exports.verify2FA = async (req, res) => {
         const random = sessionRandom;
         user.agents.push({ random });
 
+        user.isTwoFactorVerified = true;
+
         try {
             await user.save(); // Save the updated agents array to the database
         } catch (saveError) {
-            console.error("Error saving user agents:", saveError);
             return res.status(500).send({ errors: [{ msg: "Error saving user agents" }] });
         }
 
-        const payload = { _id: user._id, random, isTemporary: false };
+        //const payload = { _id: user._id, random, isTemporary: false };
+        const payload = { _id: user._id, random};
 
         let accessToken, refreshToken;
         try {
@@ -218,9 +222,6 @@ exports.verify2FA = async (req, res) => {
         res.status(400).json({ message: "TOTP is not correct or expired" });
     }
 };
-
-
-
 
 exports.userProfile = async (req, res) => {
     return res.status(200).json({

@@ -5,6 +5,30 @@ const jwt = require('jsonwebtoken');
 const { disconnectDB } = require('@mongooseConnection');
 const Product = require('../mongoose/models/product');
 const Order = require('../mongoose/models/order');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
+const crypto = require('crypto');
+
+// Jest mocks the entire speakeasy. These mocked speakeasy functions don’t perform real 2FA operations; they just provide hardcoded responses, allowing us to verify how our route behaves based on expected input
+jest.mock('speakeasy', () => ({
+    // we are mocking the generateSecret function
+    //jest.fn() creates a mock function which can record calls made to it and specify what it should return.
+    // .mockReturnValue(...) return a value: here always {base32: 'mocked-secret'}
+    generateSecret: jest.fn().mockReturnValue({
+        base32: 'mocked-secret',
+    }),
+    // return 'mocked-url' every time it’s called, simulating the URL creation for the 2FA setup.
+    otpauthURL: jest.fn().mockReturnValue('mocked-url'),
+    //totp.verify is mocked to return true, which simulates successful verification of TOTP
+    totp: {
+        verify: jest.fn().mockReturnValue(true),
+    },
+}));
+
+jest.mock('qrcode', () => ({
+    toDataURL: jest.fn().mockResolvedValue('fakeQRCodeUrl'),
+}));
+
 
 afterEach(async () => {
     await User.deleteMany();
@@ -25,7 +49,8 @@ describe("User Routes", () => {
                     email: "testuser@example.com",
                     password: "Password123"
                 });
-            
+            console.log(response.body);  // This will print the response body to the console
+
             expect(response.statusCode).toBe(201);
             expect(response.body.success).toBe(true);
             expect(response.body.data).toHaveProperty('email', 'testuser@example.com');
@@ -221,12 +246,13 @@ describe("User Routes", () => {
                     });
                 
                 expect(response.statusCode).toBe(200);
-                expect(response.body.msg).toBe("Logged in successfully");
-                expect(response.body.accessToken).toBeDefined();
-                expect(response.body.refreshToken).toBeDefined();
+                expect(response.body.msg).toBe("Please set up Two-Factor Authentication.");
+                expect(response.body.temporaryToken).toBeDefined();
+                expect(response.body.data.userId).toBeDefined();
+                expect(response.body.data.needs2FASetup).toBe(true);
             });
         })
-        describe("Logging with invalid credentials", () => {
+        describe("Logging with invalid credentials: user email doesn't exist", () => {
             it("should return status 401 and error Acecc Denied", async () => {
                 const response = await request(app)
                     .post('/api/login')
@@ -273,26 +299,195 @@ describe("User Routes", () => {
         });
     });
 
-    describe("GET /api/profile", () => {
+    describe("POST /api/setup2FA", () => {
         let user;
-        let accessToken;
 
         beforeEach(async () => {
+            // Create a new user with no 2FA secret
             user = new User({
-                name: "Profile User",
-                email: "profile@example.com",
-                password: "Password123"
+                name: "Test User",
+                email: "testuser@example.com",
+                password: "Password123",
             });
             await user.save();
-    
-            // Log in to get tokens
+            // Log in to get temporary token
             const loginResponse = await request(app)
                 .post('/api/login')
                 .send({ email: user.email, password: "Password123" });
-    
-            accessToken = loginResponse.body.accessToken;
-            refreshToken = loginResponse.body.refreshToken;
+                
+            temporaryToken = loginResponse.body.temporaryToken;
         });
+
+        it("should return an error if 2FA is already set up", async () => {
+            // Simulate user having 2FA already set up
+            user.twoFactorSecret = "fakeSecret";
+            await user.save();
+
+            const response = await request(app)
+                .post('/api/setup2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`); // Assume user is authenticated
+
+            expect(response.status).toBe(400);
+            expect(response.body.errors[0].msg).toBe("2FA is already set up");
+        });
+
+        it("should return QRCode and secret when setting up 2FA", async () => {
+            // Mock speakeasy to generate a secret
+            speakeasy.generateSecret.mockReturnValue({
+                base32: "secret123",
+            });
+            // Mock QRCode generation
+            QRCode.toDataURL.mockResolvedValue("fakeQRCodeUrl");
+            // const token = jwt.sign({ _id: user._id }, 'your-secret-key'); // Generate a JWT token
+
+            const response = await request(app)
+                .post('/api/setup2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`);
+
+            expect(response.status).toBe(200);
+            //expect(response.body.secret).toBe("secret123");
+            expect(response.body.QRCode).toBe("fakeQRCodeUrl");
+        });
+
+        it("should return an error if there is an issue generating 2FA", async () => {
+            speakeasy.generateSecret.mockImplementation(() => {
+                throw new Error("Error generating 2FA secret");
+            });
+
+            const response = await request(app)
+                .post('/api/setup2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`);
+
+            expect(response.status).toBe(500);
+            expect(response.body.errors[0].msg).toBe("Error setting up 2FA");
+        });
+    });
+
+    describe("POST /api/verify2FA", () => {
+        let user;
+
+        beforeEach(async () => {
+            user = new User({
+                name: "Test User",
+                email: "testuser@example.com",
+                password: "Password123",
+            });
+            user.twoFactorSecret = "secret123"; // Set up 2FA for testing
+            await user.save();
+            // Log in to get temporary token
+            const loginResponse = await request(app)
+                .post('/api/login')
+                .send({ email: user.email, password: "Password123" });
+                
+            temporaryToken = loginResponse.body.temporaryToken;
+        });
+
+        it("should return an error if TOTP is missing", async () => {
+            const response = await request(app)
+                .post('/api/verify2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`)
+                .send({}); // No TOTP
+
+            expect(response.status).toBe(422);
+            expect(response.body.errors[0].msg).toBe("TOTP is required");
+        });
+
+        it("should return an error if the TOTP is incorrect", async () => {            
+            speakeasy.totp.verify = jest.fn().mockReturnValue(false);
+
+            const response = await request(app)
+                .post('/api/verify2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`)
+                .send({ totp: "invalidTotp" });
+        
+
+            expect(response.status).toBe(400);
+            expect(response.body.message).toBe("TOTP is not correct or expired");
+        });
+        
+
+        it("should generate new tokens and return success if TOTP is correct", async () => {
+            // Mock speakeasy to verify the TOTP
+            speakeasy.totp.verify.mockReturnValue(true);
+            
+            const response = await request(app)
+                .post('/api/verify2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`)
+                .send({ totp: "correctTotp" });
+
+            expect(response.status).toBe(200);
+            expect(response.body.status).toBe(true);
+            expect(response.body.msg).toBe("TOTP validated successfully: user logged in successfully");
+            expect(response.body.accessToken).toBeDefined();
+            expect(response.body.refreshToken).toBeDefined();
+            expect(response.body.data.user).toBe(user.name);
+            expect(response.body.data.email).toBe(user.email);
+        });
+
+        it("should return an error if there is a server error during user save", async () => {
+            // Register a new test user for this specific test case
+            const errorUser = new User({
+                name: "Error Test User",
+                email: "errortestuser@example.com",
+                password: "Password123",
+            });
+            errorUser.twoFactorSecret = "secretForErrorTest";
+            await errorUser.save();
+        
+            // Log in to get a temporary token for this user
+            const loginResponse = await request(app)
+                .post('/api/login')
+                .send({ email: errorUser.email, password: "Password123" });
+        
+            const errorUserToken = loginResponse.body.temporaryToken;
+        
+            // Mock TOTP verification to return true
+            jest.spyOn(speakeasy.totp, 'verify').mockReturnValue(true);
+        
+            // Mock save to throw an error for this specific user instance
+            // jest.spyOn(User.prototype, 'save') ensures that any save call on User instances during this test will throw an error.
+            jest.spyOn(User.prototype, 'save').mockImplementationOnce(() => {
+                throw new Error("Save failed");
+            });        
+            // Call verify2FA endpoint
+            const response = await request(app)
+                .post('/api/verify2FA')
+                .set('Authorization', `Bearer ${errorUserToken}`)
+                .send({ totp: "correctTotp" });
+        
+            // Assertions
+            expect(response.status).toBe(500);
+            expect(response.body.errors[0].msg).toBe("Error saving user agents");
+        });
+        
+    });
+
+
+    describe("GET /api/profile", () => {
+        const keys = process.env.ACCESS_TOKEN_SECRET;
+        const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; // e.g., "10m"
+        let accessToken;
+        let user;
+        const random = "some_random_value";
+
+        beforeEach(async () => {
+            // Step 1: Create and save a new user with `isTwoFactorVerified` set to true
+            user = new User({
+                name: "Profile User",
+                email: "profile@example.com",
+                password: "Password123",
+                isTwoFactorVerified: true,
+                twoFactorSecret: "secret", // Add if required by your schema
+                agents: [{random}]
+            });
+            await user.save();
+        
+            const payload = { _id: user._id, random }; // include necessary payload data
+        
+            accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+        
+        });
+
         it("should return the user profile when authenticated with access token", async () => { 
             const response = await request(app)
                 .get('/api/profile')
@@ -303,11 +498,11 @@ describe("User Routes", () => {
             expect(response.body.data).not.toHaveProperty('password');  // Password should be excluded
         });
         it("should return status code 401 when authenticated with invalid access token", async () => {
-            const token = jwt.sign({ _id: user._id, random: "hello"}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
+            const incorrectAccessToken = jwt.sign({ _id: user._id, random: "hello"}, keys, { expiresIn: accessTokenExpiry });
 
             const response = await request(app)
                 .get('/api/profile')
-                .set('Authorization', `Bearer ${token}`);
+                .set('Authorization', `Bearer ${incorrectAccessToken}`);
             
             expect(response.statusCode).toBe(401);
             expect(response.body.errors[0].msg).toBe("Unauthorized access");
@@ -322,27 +517,29 @@ describe("User Routes", () => {
         });
     });
     describe("POST /api/renewAccessToken", () => {
-        let user;
+        const keys = process.env.ACCESS_TOKEN_SECRET;
+        const keys2 = process.env.REFRESH_TOKEN_SECRET;
+        const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; 
         let accessToken;
         let refreshToken;
+        let user;
+        const random = "some_random_value";
 
         beforeEach(async () => {
             user = new User({
                 name: "Token User",
-                email: "tokenuser@ex.com",
-                password: "Password123"
+                email: "tokenuser@example.com",
+                password: "Password123",
+                isTwoFactorVerified: true,
+                twoFactorSecret: "secret", 
+                agents: [{random}]
             });
             await user.save();
-            console.log("password after registr", user.password)
-    
-            // Log in to get tokens
-            const loginResponse = await request(app)
-                .post('/api/login')
-                .send({ email: user.email, password: "Password123" });
-                console.log("password after login", user.password)
-            
-            accessToken = loginResponse.body.accessToken;
-            refreshToken = loginResponse.body.refreshToken;
+        
+            const payload = { _id: user._id, random }; 
+        
+            accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+            refreshToken = jwt.sign(payload, keys2 );
         });
         it("should renew access and refresh token with a valid refresh token", async () => {   
             const response = await request(app)
@@ -361,7 +558,6 @@ describe("User Routes", () => {
                 expect(oldAccessTokenProfileResponse.statusCode).toBe(401);
                 expect(oldAccessTokenProfileResponse.body.errors[0].msg).toBe("Unauthorized access");
 
-        
             // check if new access token works correctly, should get access to the user profile
             const newAccessToken = response.body.accessToken;
 
@@ -370,7 +566,7 @@ describe("User Routes", () => {
                 .set('Authorization', `Bearer ${newAccessToken}`);
 
                 expect(profileRouteResponse.statusCode).toBe(200); 
-                expect(profileRouteResponse.body.data).toHaveProperty('email', 'tokenuser@ex.com');
+                expect(profileRouteResponse.body.data).toHaveProperty('email', 'tokenuser@example.com');
                 expect(profileRouteResponse.body.data).toHaveProperty('name', "Token User");
         });
     
@@ -395,24 +591,27 @@ describe("User Routes", () => {
         });
     });
     describe("POST /api/logout", () => {
-        let user;
+        const keys = process.env.ACCESS_TOKEN_SECRET;
+        const keys2 = process.env.REFRESH_TOKEN_SECRET;
+        const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; 
         let accessToken;
-    
+        let user;
+        const random = "some_random_value";
+
         beforeEach(async () => {
             user = new User({
-                name: "Logout User",
-                email: "logoutuser@e.com",
-                password: "Password123"
+                name: "Token User",
+                email: "tokenuser@example.com",
+                password: "Password123",
+                isTwoFactorVerified: true,
+                twoFactorSecret: "secret", 
+                agents: [{random}]
             });
             await user.save();
-    
-            // Log in to get tokens
-            const loginResponse = await request(app)
-                .post('/api/login')
-                .send({ email: user.email, password: "Password123" });
-    
-            accessToken = loginResponse.body.accessToken;
-            refreshToken = loginResponse.body.refreshToken;
+        
+            const payload = { _id: user._id, random }; 
+        
+            accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
         });
     
         it("should logout the user by deleting random value from agents array", async () => {
@@ -459,60 +658,59 @@ describe("User Routes", () => {
     });
     describe("POST /api/admin/logout-user", () => {
         describe("ADMIN - admin terminate the user session", () => {
-            let admin;
+            const keys = process.env.ACCESS_TOKEN_SECRET;
+            const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; 
+            let adminAccessToken;
+            let userAccessToken;
             let user;
-            let userId;
+            let admin;
+            const random = "some_random_value";
 
             beforeEach(async () => {
-                // creating admin
+                // Creating admin
                 admin = new User({
-                    name: "Anastasia",
-                    email: "anastasia@gmail.com",
+                    name: "Admin",
+                    email: "admin@example.com",
                     password: "Password123",
+                    isTwoFactorVerified: true,
+                    twoFactorSecret: "secret", 
+                    agents: [{random}],
                     role: "1534"
                 });
                 await admin.save();
+            
+                const payloadAdmin = { _id: admin._id, random }; 
+            
+                adminAccessToken = jwt.sign(payloadAdmin, keys, { expiresIn: accessTokenExpiry });
 
-                const loginAdminResponse = await request(app)
-                    .post('/api/login')
-                    .send({ email: admin.email, password: "Password123" });
-
-                // admin tokens
-                adminAccessToken = loginAdminResponse.body.accessToken;
-                adminRefreshToken = loginAdminResponse.body.refreshToken;
-
-                // creating user
+                // Step 2: Creating user
                 user = new User({
                     name: "User",
-                    email: "user@gmail.com",
-                    password: "Password123"
+                    email: "user@example.com",
+                    password: "Password123",
+                    isTwoFactorVerified: true,
+                    twoFactorSecret: "secret", 
+                    agents: [{random}]
                 });
                 await user.save();
-
-                const loginUserResponse = await request(app)
-                    .post('/api/login')
-                    .send({ email: user.email, password: "Password123" });
-                
-                // user tokens
-                userAccessToken = loginUserResponse.body.accessToken;
-                userRefreshToken = loginUserResponse.body.refreshToken;
-                userId = user._id; 
-
+            
+                const payload = { _id: user._id, random }; 
+            
+                userAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
             });
 
             it("should terminate the user session successfully and remove the agent", async () => {
                 const response = await request(app)
                     .post('/api/admin/logout-user')
-                    .send({ userId: userId })
+                    .send({ userId: user._id })
                     .set('Authorization', `Bearer ${adminAccessToken}`);
 
                 expect(response.statusCode).toBe(200);
                 expect(response.body.data.msg).toBe("User session terminated");
-                expect(response.body.data).toHaveProperty('email', 'user@gmail.com');
-
+                expect(response.body.data).toHaveProperty('email', 'user@example.com');
 
                 // Verify that the agent was removed
-                const updatedUser = await User.findById(userId);
+                const updatedUser = await User.findById(user._id);
                 expect(updatedUser.agents).toHaveLength(0); 
 
                 // user can not access profile with the current refresh token
@@ -526,18 +724,18 @@ describe("User Routes", () => {
             it("should return 401 if no access token is provided", async () => {
                 const response = await request(app)
                     .post('/api/admin/logout-user')
-                    .send({ userId: userId });
+                    .send({ userId: user._id });
                     
                     expect(response.statusCode).toBe(401);
                     expect(response.body.errors[0].msg).toBe("Unauthorized access");
             });
             it("should return 401 if an invalid access token is provided", async () => {
-                const invalidToken = "someInvalidToken"; 
+                const invalidAdminAccessToken = "someInvalidToken"; 
         
                 const response = await request(app)
                     .post('/api/admin/logout-user')
-                    .set('Authorization', `Bearer ${invalidToken}`)
-                    .send({ userId: userId });
+                    .set('Authorization', `Bearer ${invalidAdminAccessToken}`)
+                    .send({ userId: user._id });
         
                 expect(response.statusCode).toBe(401);
                 expect(response.body.errors[0].msg).toBe("Unauthorized access"); 
@@ -569,31 +767,35 @@ describe("User Routes", () => {
         });
 
         describe("USER - user try to access /api/admin/logout-user route", () => {
+            const keys = process.env.ACCESS_TOKEN_SECRET;
+            const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; // e.g., "10m"
+            let userAccessToken;
             let user;
-            let userId;
+            let adminId;
+            const random = "some_random_value";
 
             beforeEach(async () => {
                 user = new User({
-                    name: "Terminate Session User",
-                    email: "terminateuser@gmail.com",
-                    password: "Password123"
+                    name: "UserTerminate",
+                    email: "userTerminate@example.com",
+                    password: "Password123",
+                    isTwoFactorVerified: true,
+                    twoFactorSecret: "secret", 
+                    agents: [{random}]
                 });
                 await user.save();
-
-                const loginResponse = await request(app)
-                    .post('/api/login')
-                    .send({ email: user.email, password: "Password123" });
-        
-                accessToken = loginResponse.body.accessToken;
-                refreshToken = loginResponse.body.refreshToken;
+            
+                const payload = { _id: user._id, random }; 
+            
+                userAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
             });
 
             it("should return", async () => {
-                userId = "671764557747fde82c663589"
+                adminId = "671764557747fde82c663589"
                 const response = await request(app)
                     .post('/api/admin/logout-user')
-                    .send({ userId: userId })
-                    .set('Authorization', `Bearer ${accessToken}`);
+                    .send({ userId: adminId })
+                    .set('Authorization', `Bearer ${userAccessToken}`);
 
                 expect(response.statusCode).toBe(403);
                 expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
@@ -604,84 +806,91 @@ describe("User Routes", () => {
 });
 
 describe("Product and Order Routes with Authentication", () => {
-    let admin, user;
-    let adminAccessToken, userAccessToken;
+    const keys = process.env.ACCESS_TOKEN_SECRET;
+            const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY; 
+            let adminAccessToken;
+            let userAccessToken;
+            let user;
+            let admin;
+            const random = "some_random_value";
 
-    beforeEach(async () => {
-        // Creating an admin
-        admin = new User({
-            name: "Admin",
-            email: "admin@example.com",
-            password: "Password123",
-            role: "1534"
+            beforeEach(async () => {
+                // Step 2: Creating admin
+                admin = new User({
+                    name: "Admin",
+                    email: "admin@example.com",
+                    password: "Password123",
+                    isTwoFactorVerified: true,
+                    twoFactorSecret: "secret", 
+                    agents: [{random}],
+                    role: "1534"
+                });
+                await admin.save();
+            
+                const payloadAdmin = { _id: admin._id, random }; 
+            
+                adminAccessToken = jwt.sign(payloadAdmin, keys, { expiresIn: accessTokenExpiry });
+
+                // Step 2: Creating user
+                user = new User({
+                    name: "User",
+                    email: "user@example.com",
+                    password: "Password123",
+                    isTwoFactorVerified: true,
+                    twoFactorSecret: "secret", 
+                    agents: [{random}]
+                });
+                await user.save();
+            
+                const payload = { _id: user._id, random }; 
+            
+                userAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+            });
+
+        // SEED ROUTE
+    describe("POST /api/seed", () => {
+        // Test case: Successful seeding by an admin
+        it("should allow an admin to seed products", async () => {
+            const response = await request(app)
+                .post('/api/seed')
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(201);
+            expect(response.body.message).toBe("Products seeded successfully");
+            expect(response.body.data).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ name: "Bananas", price: 1.5 }),
+                    expect.objectContaining({ name: "Strawberry", price: 2.5 }),
+                    expect.objectContaining({ name: "Apples", price: 1.5 })
+                ])
+            );
         });
-        await admin.save();
 
-        const loginAdminResponse = await request(app)
-            .post('/api/login')
-            .send({ email: admin.email, password: "Password123" });
+        // Test case: Unauthorized access attempt by a regular user
+        it("should prevent a regular user from seeding products", async () => {
+            const response = await request(app)
+                .post('/api/seed')
+                .set('Authorization', `Bearer ${userAccessToken}`);
 
-        adminAccessToken = loginAdminResponse.body.accessToken;
-
-        // Creating a regular user
-        user = new User({
-            name: "Regular User",
-            email: "user@example.com",
-            password: "Password123"
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
         });
-        await user.save();
 
-        const loginUserResponse = await request(app)
-            .post('/api/login')
-            .send({ email: user.email, password: "Password123" });
+        // Test case: Partial seeding when some products already exist
+        it("should respond with an error if some products already exist in the store", async () => {
+            await request(app)
+                .post('/api/seed')
+                .set('Authorization', `Bearer ${adminAccessToken}`);
 
-        userAccessToken = loginUserResponse.body.accessToken;
+            // adding the same products
+            const response = await request(app)
+                .post('/api/seed')
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Some products already exist in the store.");
+        });
     });
-
-    // SEED ROUTE
-describe("POST /api/seed", () => {
-    // Test case: Successful seeding by an admin
-    it("should allow an admin to seed products", async () => {
-        const response = await request(app)
-            .post('/api/seed')
-            .set('Authorization', `Bearer ${adminAccessToken}`);
-
-        expect(response.statusCode).toBe(201);
-        expect(response.body.message).toBe("Products seeded successfully");
-        expect(response.body.data).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({ name: "Bananas", price: 1.5 }),
-                expect.objectContaining({ name: "Strawberry", price: 2.5 }),
-                expect.objectContaining({ name: "Apples", price: 1.5 })
-            ])
-        );
-    });
-
-    // Test case: Unauthorized access attempt by a regular user
-    it("should prevent a regular user from seeding products", async () => {
-        const response = await request(app)
-            .post('/api/seed')
-            .set('Authorization', `Bearer ${userAccessToken}`);
-
-        expect(response.statusCode).toBe(403);
-        expect(response.body.errors[0].msg).toBe("Access denied. You do not have the required permissions to access this resource.");
-    });
-
-    // Test case: Partial seeding when some products already exist
-    it("should respond with an error if some products already exist in the store", async () => {
-        await request(app)
-            .post('/api/seed')
-            .set('Authorization', `Bearer ${adminAccessToken}`);
-
-        // adding the same products
-        const response = await request(app)
-            .post('/api/seed')
-            .set('Authorization', `Bearer ${adminAccessToken}`);
-
-        expect(response.statusCode).toBe(400);
-        expect(response.body.errors[0].msg).toBe("Some products already exist in the store.");
-    });
-});
 
     // ADD PRODUCT TO ORDER ROUTE
     describe("POST /api/addProductToOrder", () => {
@@ -752,7 +961,7 @@ describe("POST /api/seed", () => {
             const applesProduct = order.products.find(product => product.name === "Apples");
             expect(applesProduct).toBeDefined(); 
             expect(applesProduct).toHaveProperty("name", "Apples");
-            expect(applesProduct).toHaveProperty("price", 30); 
+            expect(applesProduct).toHaveProperty("price", 1.5); 
         });
 
         it("should prevent access without authentication", async () => {
@@ -765,8 +974,6 @@ describe("POST /api/seed", () => {
 
     // FETCH USER BY ADMIN ROUTE
     describe("GET /api/admin/fetchUser", () => {
-        let userId;
-
         it("should allow an admin to fetch a user's details and orders", async () => {
             const response = await request(app)
                 .get('/api/admin/fetchUser')

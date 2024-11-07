@@ -26,6 +26,10 @@ const UserSchema = new mongoose.Schema({
     twoFactorSecret: {
         type: String
     },
+    isTwoFactorVerified: { // to track 2FA status
+        type: Boolean,
+        default: false // Default is false, meaning 2FA is not verified yet
+    },
     role: {
         type: String,
         enum: ['user', '1534'], // 15 - admin
