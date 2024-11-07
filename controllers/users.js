@@ -11,6 +11,10 @@ const Order = require('../mongoose/models/order');
 const Product = require('../mongoose/models/product');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const { buildPDF } = require('../service/pdf-service');
+const path = require('path');
+const fs = require('fs');
+const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // Adjust the path according to your folder structure
 
 
 exports.userRegister = [
@@ -433,6 +437,7 @@ exports.addProductToOrder = async (req, res) => {
         });
 
         const orderDetails = {
+            orderId: order._id, 
             createdAt: order.createdAt,
             products: order.products.map(prod => ({
                 name: prod.name,
@@ -470,6 +475,7 @@ exports.checkMyOrder = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 order: user.order.map(order => ({
+                    orderId: order._id,
                     createdAt: order.createdAt,
                     products: order.products.map(product => ({
                         name: product.name,
@@ -520,6 +526,74 @@ exports.fetchUserByAdmin = async (req, res) => {
         return res.status(500).json({ errors: [{msg: 'Error fetching user with orders'}] });
     }
 };
+
+exports.generateInvoice = async (req, res) => {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+        return res.status(400).json({ errors: [{ msg: "Order ID is required" }] });
+    }
+
+    try {
+        const order = await Order.findOne({ _id: orderId, userId: req.user._id })
+            .populate('products') // Ensure the products are populated
+            .populate('userId', 'name email');
+
+        if (!order) {
+            return res.status(404).json({ errors: [{ msg: "Order not found or access denied" }] });
+        }
+
+        // Generate the PDF invoice
+        const filePath = await buildPDF(order);
+        const fileUrl = `/api/invoices/${path.basename(filePath)}`; 
+
+        return res.status(200).json({ message: 'Invoice generated successfully', fileUrl });
+    } catch (error) {
+        console.error('Error generating invoice:', error);
+        return res.status(500).json({ errors: [{ msg: "Internal server error" }] });
+    }
+};
+exports.downloadInvoice = async (req, res) => {
+    const { filename } = req.params;
+    const filePath = path.join(invoicesDir, filename);
+
+    // Check if the file exists
+    if (fs.existsSync(filePath)) {
+        // Serve the file as a download
+        res.download(filePath, filename, (err) => {
+            if (err) {
+                console.error("Error sending file:", err);
+                res.status(500).json({ message: 'Error serving file' });
+            }
+        });
+    } else {
+        res.status(404).json({ message: 'File not found' });
+    }
+};
+
+exports.checkInvoice = async (req, res) => {
+    const { filename } = req.params;
+    const filePath = path.join(invoicesDir, filename);
+
+    // Check if the file exists
+    if (fs.existsSync(filePath)) {
+        // Set headers to open PDF in browser
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
+
+        // Send the file to open in browser
+        res.sendFile(filePath, (err) => {
+            if (err) {
+                console.error("Error sending file:", err);
+                res.status(500).json({ message: 'Error serving file' });
+            }
+        });
+    } else {
+        res.status(404).json({ message: 'File not found' });
+    }
+};
+
+
 
 
 

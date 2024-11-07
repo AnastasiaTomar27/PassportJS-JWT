@@ -2,17 +2,17 @@ require('module-alias/register')
 const path = require('path')
 require('dotenv').config({path: path.resolve('config/dev.env')})
 const express = require("express");
-//const session = require('express-session');
 const passport = require('passport')
 require('@mongooseConnection')
 const { connectDB } = require('@mongooseConnection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
 const cookieParser = require('cookie-parser');
-const MongoStore = require('connect-mongo');
 
-//const secret = process.env.SECRET;
 const app = express();
+// Serve static files from the "invoices" directory
+const invoicesDir = path.join(__dirname, 'service/invoices'); 
+app.use('/invoices', express.static(invoicesDir));
 
 connectDB()
 
