@@ -15,6 +15,7 @@ const { buildPDF } = require('../service/pdf-service');
 const path = require('path');
 const fs = require('fs');
 const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // Adjust the path according to your folder structure
+const { sendInvoiceEmail } = require('../service/emailService');
 
 
 exports.userRegister = [
@@ -547,7 +548,11 @@ exports.generateInvoice = async (req, res) => {
         const filePath = await buildPDF(order);
         const fileUrl = `/api/invoices/${path.basename(filePath)}`; 
 
-        return res.status(200).json({ message: 'Invoice generated successfully', fileUrl });
+        // Pass the filePath directly to sendInvoiceEmail
+        await sendInvoiceEmail(order, order.userId.email, filePath);
+        console.log("aaaaaaaaaaaa", order, order.userId.email, filePath)
+
+        return res.status(200).json({ message: 'Invoice generated and sent successfully', fileUrl });
     } catch (error) {
         console.error('Error generating invoice:', error);
         return res.status(500).json({ errors: [{ msg: "Internal server error" }] });

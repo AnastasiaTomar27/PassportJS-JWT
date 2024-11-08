@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
-const invoicesDir = path.join(__dirname, 'invoices'); // Saves in 'services/invoices' directory
+const invoicesDir = path.join(__dirname, 'invoices'); 
 
 function buildPDF(order) {
     return new Promise((resolve, reject) => {
@@ -43,8 +43,11 @@ function buildPDF(order) {
         doc.end();
 
         // Handle success or error
-        stream.on('finish', () => resolve(filePath)); // Successfully generated PDF
-        stream.on('error', (error) => reject(error)); // If an error occurs while saving the PDF
+        stream.on('finish', () => {
+            console.log("PDF generation finished for:", filePath); 
+            resolve(filePath);
+        });        
+        stream.on('error', (error) => reject(error)); 
     }); 
 }
 
