@@ -8,7 +8,7 @@ const transporter = nodemailer.createTransport({
     auth: {
         user: 'test404app@gmail.com', // Gmail email address
         //pass: 'EtoNoviyPassword111!!!' // Replace with App Password if you have 2FA enabled
-        pass: "ytlu xdrh wqxb ccie" // I turned on 2FA and set App passwords
+        pass: "ytlu xdrh wqxb ccie" // I turned on 2FA and set App passwords, here shoul that password
     }
 });
 

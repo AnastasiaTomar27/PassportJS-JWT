@@ -156,13 +156,47 @@ exports.setup2FA = async (req, res) => {
         });
         const qrImageUrl = await QRCode.toDataURL(url);
         res.status(200).json({
-            //secret: secret.base32,
             QRCode: qrImageUrl
         })
     } catch (error) {
         res.status(500).json({ errors: [{ msg: "Error setting up 2FA" }] });
     }
 }
+
+exports.reset2FA = async (req, res) => {
+    try {
+        const user = req.user;
+        
+        user.twoFactorSecret = null;
+        await user.save();
+
+        // Generate a new 2FA secret and store it
+        const secret = speakeasy.generateSecret();
+        user.twoFactorSecret = secret.base32;
+        await user.save();
+
+        // Generate QR code URL for the new 2FA setup
+        const otpauthUrl = speakeasy.otpauthURL({
+            secret: secret.base32,
+            label: `${user.name}`,
+            issuer: "www.anastasia.com",
+            encoding: "base32"
+        });
+
+        const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
+
+        // Send QR code back to client for scanning
+        res.status(200).json({
+            msg: "2FA has been reset successfully",
+            QRCode: qrCodeUrl
+        });
+
+    } catch (error) {
+        console.error("Error resetting 2FA:", error);
+        res.status(500).json({ errors: [{ msg: "Error resetting 2FA" }] });
+    }
+};
+
 
 exports.verify2FA = async (req, res) => {
     const { totp } = req.body;

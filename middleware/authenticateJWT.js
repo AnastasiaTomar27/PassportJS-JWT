@@ -16,7 +16,7 @@ const authenticateJWT = (req, res, next) => {
 
         // Handle restrictions based on session type if necessary
         if (user.sessionType === 'temporary') {
-            const allowedTemporaryRoutes = ['/setup2FA', '/verify2FA'];
+            const allowedTemporaryRoutes = ['/setup2FA', '/verify2FA', '/reset2FA'];
             if (!allowedTemporaryRoutes.includes(req.path)) {
                 return res.status(403).json({ errors: [{ msg: "Temporary token not permitted for this action" }] });
             }
