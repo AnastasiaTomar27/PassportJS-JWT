@@ -5,7 +5,6 @@ const ExtractJWT = require('passport-jwt').ExtractJwt;
 
 
 const keys = process.env.ACCESS_TOKEN_SECRET;
-//const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const User = require('../mongoose/models/user');
 
 const accessTokenOptions = {

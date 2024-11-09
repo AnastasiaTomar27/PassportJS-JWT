@@ -11,7 +11,7 @@ const crypto = require('crypto');
 
 // Jest mocks the entire speakeasy. These mocked speakeasy functions don’t perform real 2FA operations; they just provide hardcoded responses, allowing us to verify how our route behaves based on expected input
 jest.mock('speakeasy', () => ({
-    // we are mocking the generateSecret function
+    // mocking the generateSecret function
     //jest.fn() creates a mock function which can record calls made to it and specify what it should return.
     // .mockReturnValue(...) return a value: here always {base32: 'mocked-secret'}
     generateSecret: jest.fn().mockReturnValue({

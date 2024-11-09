@@ -1,15 +1,18 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
-const invoicesDir = path.join(__dirname, 'invoices'); 
+const invoicesDir = path.join(__dirname, 'service', 'invoices'); // __dirname means the path to service folder
 
 function buildPDF(order) {
+    // Promise gives the function an asynchronous structure
     return new Promise((resolve, reject) => {
 
         const filePath = path.join(invoicesDir, `invoice-${order._id}.pdf`);
 
         const doc = new PDFDocument();
+        // creates a writable stream, that will be saved in filePath
         const stream = fs.createWriteStream(filePath);
+        //  By piping doc into stream, everything you write to doc (like text, lines, images, etc.) is sent directly to stream, which writes the content to the file on disk.
         doc.pipe(stream);
 
         // Invoice Header
@@ -40,15 +43,17 @@ function buildPDF(order) {
         doc.text(`VAT (20%): $${vat.toFixed(2)}`);
         doc.text(`Grand Total: $${grandTotal.toFixed(2)}`);
         
-        doc.end();
+        doc.end(); // doc stops sending data
 
-        // Handle success or error
+        // listens for the finish event on the stream
         stream.on('finish', () => {
             console.log("PDF generation finished for:", filePath); 
             resolve(filePath);
         });        
-        stream.on('error', (error) => reject(error)); 
-    }); 
+        stream.on('error', (error) => {
+            console.error("Error writing PDF file:", error);
+            reject({ errors: [{ msg: "Error writing PDF file" }] });
+        });    }); 
 }
 
 module.exports = {buildPDF};

@@ -7,15 +7,15 @@ const mongoose = require('mongoose');
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
-const Order = require('../mongoose/models/order');
-const Product = require('../mongoose/models/product');
+const Order = require('@modelOrder');
+const Product = require('@modelProduct');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { buildPDF } = require('../service/pdf-service');
+const { buildPDF } = require('@buildPDF');
 const path = require('path');
 const fs = require('fs');
-const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // Adjust the path according to your folder structure
-const { sendInvoiceEmail } = require('../service/emailService');
+const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // __dirname means the path of users.js, '..' means go from the routes folder
+const { sendInvoiceEmail } = require('@emailService');
 
 
 exports.userRegister = [
@@ -100,9 +100,10 @@ exports.login = [
             }
             
             const random = randomIdentifier
-            user.tempAgents.push({
-                random
-            })
+
+            user.tempAgents = [{ random: randomIdentifier }];
+
+            user.isTwoFactorVerified = false;
 
             try {
                 await user.save(); // Save the updated agents array to the database
@@ -571,26 +572,29 @@ exports.generateInvoice = async (req, res) => {
 
     try {
         const order = await Order.findOne({ _id: orderId, userId: req.user._id })
-            .populate('products') // Ensure the products are populated
+            .populate('products') 
             .populate('userId', 'name email');
 
         if (!order) {
             return res.status(404).json({ errors: [{ msg: "Order not found or access denied" }] });
         }
 
-        // Generate the PDF invoice
+        // buildPDF will pass the path that i created in pdf-service file: resolve(filePath);
         const filePath = await buildPDF(order);
+        // generate a publicly accessible URL that clients (e.g., the user’s browser or my frontend application) can use to download or view the file.
         const fileUrl = `/api/invoices/${path.basename(filePath)}`; 
 
         // Pass the filePath directly to sendInvoiceEmail
         await sendInvoiceEmail(order, order.userId.email, filePath);
-        console.log("aaaaaaaaaaaa", order, order.userId.email, filePath)
 
         return res.status(200).json({ message: 'Invoice generated and sent successfully', fileUrl });
     } catch (error) {
         console.error('Error generating invoice:', error);
-        return res.status(500).json({ errors: [{ msg: "Internal server error" }] });
-    }
+        if (error.errors) {
+            return res.status(500).json(error);  // will pass  error from pdf-service file: "Error writing PDF file"
+        } else {
+            return res.status(500).json({ errors: [{ msg: "Internal server error" }] });
+        }    }
 };
 exports.downloadInvoice = async (req, res) => {
     const { filename } = req.params;
@@ -618,7 +622,8 @@ exports.checkInvoice = async (req, res) => {
     if (fs.existsSync(filePath)) {
         // Set headers to open PDF in browser
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
+        // Content-Disposition: inline suggests to the browser to display the PDF directly in the browser window instead of downloading it.
+        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"'); // filename="${filename}" allows the file to be downloaded with the correct name.
 
         // Send the file to open in browser
         res.sendFile(filePath, (err) => {
