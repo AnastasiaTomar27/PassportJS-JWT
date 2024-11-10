@@ -8,6 +8,7 @@ const Order = require('../mongoose/models/order');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 
 // Jest mocks the entire speakeasy. These mocked speakeasy functions don’t perform real 2FA operations; they just provide hardcoded responses, allowing us to verify how our route behaves based on expected input
 jest.mock('speakeasy', () => ({
@@ -49,26 +50,30 @@ describe("User Routes", () => {
                     email: "testuser@example.com",
                     password: "Password123"
                 });
-            console.log(response.body);  // This will print the response body to the console
 
             expect(response.statusCode).toBe(201);
             expect(response.body.success).toBe(true);
             expect(response.body.data).toHaveProperty('email', 'testuser@example.com');
         });
         // it will not check if its really an admin, should I send role in response or just change the logic in register route? 
-        it("should create a new user and return 201, ROLE: 1534 - means ADMIN", async () => {
+        it("should create a new user and return 201, ROLE: ADMIN", async () => {
             const response = await request(app)
                 .post('/api/signup')
                 .send({
                     name: "Admin",
                     email: "admin@example.com",
                     password: "Password123",
-                    role: "1534"
+                    role: "admin",
+                    adminPassword: ADMIN_PASSWORD
                 });
-            
+
             expect(response.statusCode).toBe(201);
             expect(response.body.success).toBe(true);
             expect(response.body.data).toHaveProperty('email', 'admin@example.com');
+        
+            const adminUser = await User.findOne({ email: "admin@example.com" });
+
+            expect(adminUser.role).toBe("admin");
         });
 
         it("should return 400 if the email already exists", async () => {
@@ -675,7 +680,7 @@ describe("User Routes", () => {
                     isTwoFactorVerified: true,
                     twoFactorSecret: "secret", 
                     agents: [{random}],
-                    role: "1534"
+                    role: "admin"
                 });
                 await admin.save();
             
@@ -823,7 +828,7 @@ describe("Product and Order Routes with Authentication", () => {
                     isTwoFactorVerified: true,
                     twoFactorSecret: "secret", 
                     agents: [{random}],
-                    role: "1534"
+                    role: "admin"
                 });
                 await admin.save();
             

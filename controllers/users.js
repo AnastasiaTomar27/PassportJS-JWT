@@ -39,7 +39,8 @@ exports.userRegister = [
                 }
             }
             return true;
-        }).withMessage('Role selection failed.')        ],
+        }).withMessage('Role selection failed.') 
+        ],
         async (request, response) => {
             const result = validationResult(request);
     
