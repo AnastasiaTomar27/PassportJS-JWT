@@ -3,8 +3,8 @@ const request = require('supertest');
 const User = require('@modelsUser');
 const jwt = require('jsonwebtoken');
 const { disconnectDB } = require('@mongooseConnection');
-const Product = require('../mongoose/models/product');
-const Order = require('../mongoose/models/order');
+const Product = require('@modelProduct');
+const Order = require('@modelOrder');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
@@ -29,7 +29,6 @@ jest.mock('speakeasy', () => ({
 jest.mock('qrcode', () => ({
     toDataURL: jest.fn().mockResolvedValue('fakeQRCodeUrl'),
 }));
-
 
 afterEach(async () => {
     await User.deleteMany();
