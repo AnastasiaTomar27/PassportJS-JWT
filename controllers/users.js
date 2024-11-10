@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 10min; 
 const Order = require('@modelOrder');
 const Product = require('@modelProduct');
@@ -28,8 +29,17 @@ exports.userRegister = [
                 if (!passwordRegex.test(value)) {
                     throw new Error(); }
                 }).withMessage("User password configuration is invalid"),  
-        body("role").optional().isIn(['user', '1534']).withMessage('Invalid role') 
-        ],
+        body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role')
+        .custom(async (role, { req }) => {
+            // If the user selects 'admin', validate the password
+            if (role === 'admin') {
+                const { adminPassword } = req.body;
+                if (adminPassword !== ADMIN_PASSWORD) {
+                    throw new Error('Incorrect admin password.');
+                }
+            }
+            return true;
+        }).withMessage('Role selection failed.')        ],
         async (request, response) => {
             const result = validationResult(request);
     
@@ -221,7 +231,7 @@ exports.verify2FA = async (req, res) => {
         const sessionRandom = crypto.randomBytes(16).toString('hex');
 
         if (!user.agents) {
-            user.agents = [];
+            user.agents = []; // [] means I allow user to log in from different devices
         }
         
         const random = sessionRandom;
@@ -377,13 +387,12 @@ exports.terminateSession = async (req,res) => {
         }
     
         console.log("User agents before:", user.agents);
+        // This is if I allow user to log in from one device
+        //const random = user.agents.find(agent => agent.random)?.random;
+        //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
-        const random = user.agents.find(agent => agent.random)?.random;
-
-        console.log("Random value found:", random);
-
-        user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
-
+        // this is if I allow user to log in from different devices, so I need to delete all random values from agents, to terminate sessions on different devices
+        user.agents = [];
         console.log("User agents after:", user.agents);
 
         await user.save(); 
@@ -596,44 +605,41 @@ exports.generateInvoice = async (req, res) => {
             return res.status(500).json({ errors: [{ msg: "Internal server error" }] });
         }    }
 };
-exports.downloadInvoice = async (req, res) => {
+
+// in browser I use ModHeader to put access token and check routes 
+exports.invoices = async (req, res) => {
     const { filename } = req.params;
-    const filePath = path.join(invoicesDir, filename);
+    const download = req.query.download === 'true'; // I need to add ?download=true for downloading: http://localhost:3000/api/invoices/invoice-672fb86119bba8fc4780c8ec.pdf?download=true
+    
+    try {
+        // Define the path to your invoices directory and file location
+        const filePath = path.join(invoicesDir, filename);
 
-    // Check if the file exists
-    if (fs.existsSync(filePath)) {
-        // Serve the file as a download
-        res.download(filePath, filename, (err) => {
-            if (err) {
-                console.error("Error sending file:", err);
-                res.status(500).json({ message: 'Error serving file' });
-            }
-        });
-    } else {
-        res.status(404).json({ message: 'File not found' });
-    }
-};
+        // Check if the file exists (optional, depending on your app)
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
 
-exports.checkInvoice = async (req, res) => {
-    const { filename } = req.params;
-    const filePath = path.join(invoicesDir, filename);
-
-    // Check if the file exists
-    if (fs.existsSync(filePath)) {
-        // Set headers to open PDF in browser
-        res.setHeader('Content-Type', 'application/pdf');
-        // Content-Disposition: inline suggests to the browser to display the PDF directly in the browser window instead of downloading it.
-        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"'); // filename="${filename}" allows the file to be downloaded with the correct name.
-
-        // Send the file to open in browser
-        res.sendFile(filePath, (err) => {
-            if (err) {
-                console.error("Error sending file:", err);
-                res.status(500).json({ message: 'Error serving file' });
-            }
-        });
-    } else {
-        res.status(404).json({ message: 'File not found' });
+        if (download) {
+            // Send the file as an attachment (download)
+            return res.download(filePath, filename, (err) => {
+                if (err) {
+                    console.error('File download error:', err);
+                    return res.status(500).json({ error: 'Could not download the file.' });
+                }
+            });
+        } else {
+            // Send the file inline (to view in the browser)
+            res.sendFile(filePath, (err) => {
+                if (err) {
+                    console.error('File view error:', err);
+                    return res.status(500).json({ error: 'Could not view the file.' });
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error handling file request:', error);
+        return res.status(500).json({ error: 'Internal server error.' });
     }
 };
 

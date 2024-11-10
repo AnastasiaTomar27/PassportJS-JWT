@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
-const invoicesDir = path.join(__dirname, 'service', 'invoices'); // __dirname means the path to service folder
+const invoicesDir = path.join(__dirname, 'invoices'); // __dirname means the path to service folder
 
 function buildPDF(order) {
     // Promise gives the function an asynchronous structure

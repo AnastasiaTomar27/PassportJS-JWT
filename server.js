@@ -11,8 +11,8 @@ const cookieParser = require('cookie-parser');
 
 const app = express();
 // Serve static files from the "invoices" directory
-const invoicesDir = path.join(__dirname, 'service/invoices'); 
-app.use('/invoices', express.static(invoicesDir));
+// const invoicesDir = path.join(__dirname, 'service/invoices'); 
+// app.use('/api/invoices', express.static(invoicesDir));
 
 connectDB()
 
