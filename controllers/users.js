@@ -225,17 +225,17 @@ exports.verify2FA = async (req, res) => {
     if (verified) {
         const sessionRandom = crypto.randomBytes(16).toString('hex');
 
-        if (!user.agents) {
-            user.agents = []; // [] means I allow user to log in from different devices
-        }
+        // if (!user.agents) {
+        //     user.agents = []; // [] means I allow user to log in from different devices
+        // }
         
         const random = sessionRandom;
-        user.agents.push({ random });
+        user.agents.push({ random }); // push means I allow user to log in from different devices
 
         user.isTwoFactorVerified = true;
 
         try {
-            await user.save(); // Save the updated agents array to the database
+            await user.save(); 
         } catch (saveError) {
             return res.status(500).send({ errors: [{ msg: "Error saving user agents" }] });
         }
@@ -279,7 +279,7 @@ exports.userProfile = async (req, res) => {
 
 exports.renewToken = async (req, res) => {
     try {
-        const { refreshToken } = req.body; // Extracting the refresh token from the request body
+        const { refreshToken } = req.body;
 
         if (!refreshToken) {
             // 400 - bad request (request is malformed or incomplete)
@@ -310,7 +310,7 @@ exports.renewToken = async (req, res) => {
             })
             
             try {
-                await user.save(); // Save the updated agents array to the database
+                await user.save(); 
             } catch (saveError) {
                 return response.status(500).json({ errors: [{msg: "Error saving user agents"}] });
             } 
@@ -340,8 +340,7 @@ exports.renewToken = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        // Assume `req.user` already has the decoded JWT payload with `random` attached
-        const currentRandom = req.user.random;
+        const currentRandom = req.user.random; // in passport jwt I added random value to user, so that current random for this session will be deleted here, not the last one in agents
 
         if (!currentRandom) {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
@@ -349,7 +348,7 @@ exports.logout = async (req, res) => {
 
         //console.log("Random identifier before logout:", currentRandom);
 
-        // Filter out the agent associated with the current session, leaving others intact
+        // only current random value will be deleted, user can access routes on other devices with other random values in jwt
         req.user.agents = req.user.agents.filter(agent => agent.random !== currentRandom);
 
         //console.log("Agents array after logout:", req.user.agents);
@@ -381,11 +380,12 @@ exports.terminateSession = async (req,res) => {
         }
     
         //console.log("User agents before:", user.agents);
-        // This is if I allow user to log in from one device
+        
+        // Admin removes only current random value from current session, but user not terminated from other devices
         //const random = user.agents.find(agent => agent.random)?.random;
         //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
-        // this is if I allow user to log in from different devices, so I need to delete all random values from agents, to terminate sessions on different devices
+        // admin deletes all random values from agents, to terminate all sessions on different devices
         user.agents = [];
         //console.log("User agents after:", user.agents);
 

@@ -59,7 +59,7 @@ passport.use(
 
             if (isAccessToken) {
                 // Attach the random identifier from `agents` and mark as a regular session
-                user.random = jwt_payload.random;
+                user.random = jwt_payload.random; // I need this current random value for delete route, to delete not the last random, but current rundom from agents
                 user.sessionType = 'access';  
                 return done(null, user);
 

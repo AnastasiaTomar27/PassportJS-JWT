@@ -12,7 +12,6 @@ const authenticateJWT = (req, res, next) => {
         }
 
         // console.log("Session type:", user.sessionType);  // 'access' or 'temporary'
-        // console.log("Random identifier:", user.random);
 
         // Handle restrictions based on session type if necessary
         if (user.sessionType === 'temporary') {
