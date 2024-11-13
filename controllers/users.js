@@ -198,7 +198,6 @@ exports.reset2FA = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error resetting 2FA:", error);
         res.status(500).json({ errors: [{ msg: "Error resetting 2FA" }] });
     }
 };

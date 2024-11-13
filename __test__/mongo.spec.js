@@ -382,6 +382,99 @@ describe("User Routes", () => {
         });
     });
 
+
+
+    describe("POST /api/reset2FA", () => {
+        let user;
+        let temporaryToken;
+
+        beforeEach(async () => {
+            // Create a new user and log them in to get a token
+            user = new User({
+                name: "Reset2FA User",
+                email: "reset2fa@example.com",
+                password: "Password123",
+            });
+            await user.save();
+
+            // Log in to get a temporary token
+            const loginResponse = await request(app)
+                .post('/api/login')
+                .send({ email: user.email, password: "Password123" });
+
+            temporaryToken = loginResponse.body.temporaryToken;
+        });
+
+        afterEach(async () => {
+            jest.restoreAllMocks();
+            await User.deleteMany();
+        });
+
+        it("should successfully reset 2FA and return QR code URL", async () => {
+            user.twoFactorSecret = "existingSecret";
+            await user.save();
+
+            // Mocking speakeasy and QRCode libraries
+            const secretMock = { base32: "newSecret" };
+            const qrCodeMockUrl = "fakeQRCodeUrl";
+            
+            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue(secretMock);
+            jest.spyOn(QRCode, 'toDataURL').mockResolvedValue(qrCodeMockUrl);
+
+            const response = await request(app)
+                .post('/api/reset2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`);
+            
+            expect(response.status).toBe(200);
+            expect(response.body.msg).toBe("2FA has been reset successfully");
+            expect(response.body.QRCode).toBe(qrCodeMockUrl);
+
+            // Check that user's 2FA secret has been updated
+            const updatedUser = await User.findById(user._id);
+            expect(updatedUser.twoFactorSecret).toBe(secretMock.base32);
+            expect(updatedUser.twoFactorSecret).not.toBe("existingSecret");
+        });
+
+        it("should return a 500 error if QR code generation fails", async () => {
+            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue({ base32: "newSecret" });
+            jest.spyOn(QRCode, 'toDataURL').mockRejectedValue(new Error("QR code generation error"));
+
+            const response = await request(app)
+                .post('/api/reset2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`);
+            
+            expect(response.status).toBe(500);
+            expect(response.body.errors[0].msg).toBe("Error resetting 2FA");
+        });
+
+        it("should return a 500 error if user save fails", async () => {
+            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue({ base32: "newSecret" });
+            jest.spyOn(QRCode, 'toDataURL').mockResolvedValue("fakeQRCodeUrl");
+
+            // Mock the save method to throw an error on the second save attempt
+            jest.spyOn(User.prototype, 'save').mockImplementationOnce(() => Promise.resolve())
+                .mockImplementationOnce(() => Promise.reject(new Error("Save failed")));
+
+            const response = await request(app)
+                .post('/api/reset2FA')
+                .set('Authorization', `Bearer ${temporaryToken}`);
+            
+            expect(response.status).toBe(500);
+            expect(response.body.errors[0].msg).toBe("Error resetting 2FA");
+        });
+
+        it("should return a 401 error if no user is found in request", async () => {
+            // Simulate no user in the request by not setting the `req.user`
+            const response = await request(app)
+                .post('/api/reset2FA')
+                .set('Authorization', `Bearer invalidToken`); // Invalid token simulates missing user
+
+            expect(response.status).toBe(401);
+            expect(response.body.errors[0].msg).toBe("Unauthorized access");
+        });
+    });
+
+
     describe("POST /api/verify2FA", () => {
         let user;
 
