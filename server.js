@@ -33,10 +33,6 @@ app.use(passport.initialize()); //  import and initialize Passport globally so t
 
 passportConfig(passport);
 
-app.get("/", (req, res) => {
-    res.send("hello world")
-})
-
 // define routes middleware
 app.use("/api", routes)
 
