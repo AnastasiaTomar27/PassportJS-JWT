@@ -7,7 +7,7 @@ require('@mongooseConnection')
 const { connectDB } = require('@mongooseConnection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
-const cookieParser = require('cookie-parser');
+//const cookieParser = require('cookie-parser');
 
 const app = express();
 // Serve static files from the "invoices" directory
