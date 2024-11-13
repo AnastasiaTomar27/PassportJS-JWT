@@ -51,31 +51,26 @@ exports.userRegister = [
             const data = matchedData(request);
             const newUser = new User(data);
 
-            try {
-                await newUser.save()
-                    .then((user) => {
-                        return response.status(201).json({
-                            success: true,
-                            msg: "User created",
-                            data: {
-                                name: user.name,
-                                email: user.email,
-                                userId: user.id,
-                            }
-                        });                    
-                    })
-                    .catch((e) => {
-                        //console.error("Error while saving user:", e); 
-
-                        if (e.code === 11000) {
-                            return response.status(400).send({ errors: [{msg: "User already registered!"}] });
-                        } else {
-                            return response.status(500).send({ errors: [{msg: "An error occurred while registering the user."}] });
+            await newUser.save()
+                .then((user) => {
+                    return response.status(201).json({
+                        success: true,
+                        msg: "User created",
+                        data: {
+                            name: user.name,
+                            email: user.email,
+                            userId: user.id,
                         }
-                    });
-            } catch (err) {
-                return response.status(500).json({ errors: [{msg: "An error occurred while registering the user."}] });
-            }  
+                    });                    
+                })
+                .catch((e) => {
+                    //console.error("Error while saving user:", e); 
+                    if (e.code === 11000) {
+                        return response.status(400).send({ errors: [{msg: "User already registered!"}] });
+                    } else {
+                        return response.status(500).send({ errors: [{msg: "An error occurred while registering the user."}] });
+                    }
+                });
         }
 ]
 
