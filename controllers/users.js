@@ -94,7 +94,7 @@ exports.login = [
             return response.status(400).send({ errors: result.array() });
         }
        
-        passport.authenticate("local", async (err, user, info) => { // here i only use passport for user authentication, but don't attach user to the session 
+        passport.authenticate("local", async (err, user, info) => { // here i only use passport for user validation, but don't attach user to the session 
             
             if (err) {
                 return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
@@ -106,9 +106,9 @@ exports.login = [
 
             const randomIdentifier = crypto.randomBytes(16).toString('hex');
 
-            if (!user.tempAgents) {
-                user.tempAgents = [];
-            }
+            // if (!user.tempAgents) {
+            //     user.tempAgents = [];
+            // }
             
             const random = randomIdentifier
 
@@ -246,7 +246,6 @@ exports.verify2FA = async (req, res) => {
             return res.status(500).send({ errors: [{ msg: "Error saving user agents" }] });
         }
 
-        //const payload = { _id: user._id, random, isTemporary: false };
         const payload = { _id: user._id, random};
 
         let accessToken, refreshToken;

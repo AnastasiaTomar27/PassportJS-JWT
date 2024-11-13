@@ -19,10 +19,6 @@ const UserSchema = new mongoose.Schema({
         min: 4,
         max: 20
     },
-    // isMfaActive: {
-    //     type: Boolean,
-    //     required: false
-    // },
     twoFactorSecret: {
         type: String
     },

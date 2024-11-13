@@ -28,11 +28,9 @@ module.exports = (passport) => {
                     }
                     const isMatch = await findUser.comparePassword(password);
                     if (!isMatch) {
-                        // password does't match
                         return done(null, false);
                     };
                     if (findUser.deletedAt) {
-                        // user delited
                         return done(null, false);
                     }
                     done(null, findUser);
