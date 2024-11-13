@@ -607,7 +607,7 @@ exports.generateInvoice = async (req, res) => {
 
         // If an error occurs in the PDF generation process
         return res.status(500).json({
-            errors: [{ msg: "Error generating PDF", details: error.message }]
+            errors: [{ message: "Error generating PDF", details: error.message }]
         });
     }
 };
@@ -623,7 +623,7 @@ exports.invoices = async (req, res) => {
 
         // Check if the file exists
         if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: 'Invoice not found' });
+            return res.status(404).json({ errors: [{ message: 'Invoice not found' }] });
         }
 
         if (download) {
@@ -631,7 +631,7 @@ exports.invoices = async (req, res) => {
             return res.download(filePath, filename, (err) => {
                 if (err) {
                     console.error('File download error:', err);
-                    return res.status(500).json({ error: 'Could not download the file.' });
+                    return res.status(500).json({ errors: [{ message: 'Could not download the file.' }] });
                 }
             });
         } else {
@@ -639,13 +639,13 @@ exports.invoices = async (req, res) => {
             res.sendFile(filePath, (err) => {
                 if (err) {
                     console.error('File view error:', err);
-                    return res.status(500).json({ error: 'Could not view the file.' });
+                    return res.status(500).json({ errors: [{ message: 'Could not view the file.' }] });
                 }
             });
         }
     } catch (error) {
         console.error('Error handling file request:', error);
-        return res.status(500).json({ error: 'Internal server error.' });
+        return res.status(500).json({ errors: [{ message: 'Internal server error.' }] });
     }
 };
 
