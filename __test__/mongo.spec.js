@@ -1249,7 +1249,7 @@ describe('Invoices Route', () => {
 
         // Assert that it returns a 404 error if the file doesn't exist
         expect(response.status).toBe(404);
-        expect(response.body.errors[0].message).toBe('Invoice not found');
+        expect(response.body.errors[0].msg).toBe('Invoice not found');
     });
 
     it('should return a 500 error if there is a file system error', async () => {
@@ -1262,7 +1262,7 @@ describe('Invoices Route', () => {
 
         // Assert that a 500 error is returned if there is a file system error
         expect(response.status).toBe(500);
-        expect(response.body.errors[0].message).toBe('Internal server error.');
+        expect(response.body.errors[0].msg).toBe('Internal server error.');
     });
     it('should prompt download when download=true is set in the query', async () => {
         const filename = 'invoice-672fb86119bba8fc4780c8ec.pdf';

@@ -623,7 +623,7 @@ exports.invoices = async (req, res) => {
 
         // Check if the file exists
         if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ errors: [{ message: 'Invoice not found' }] });
+            return res.status(404).json({ errors: [{ msg: 'Invoice not found' }] });
         }
 
         if (download) {
@@ -631,7 +631,7 @@ exports.invoices = async (req, res) => {
             return res.download(filePath, filename, (err) => {
                 if (err) {
                     console.error('File download error:', err);
-                    return res.status(500).json({ errors: [{ message: 'Could not download the file.' }] });
+                    return res.status(500).json({ errors: [{ msg: 'Could not download the file.' }] });
                 }
             });
         } else {
@@ -639,13 +639,13 @@ exports.invoices = async (req, res) => {
             res.sendFile(filePath, (err) => {
                 if (err) {
                     console.error('File view error:', err);
-                    return res.status(500).json({ errors: [{ message: 'Could not view the file.' }] });
+                    return res.status(500).json({ errors: [{ msg: 'Could not view the file.' }] });
                 }
             });
         }
     } catch (error) {
         console.error('Error handling file request:', error);
-        return res.status(500).json({ errors: [{ message: 'Internal server error.' }] });
+        return res.status(500).json({ errors: [{ msg: 'Internal server error.' }] });
     }
 };
 
