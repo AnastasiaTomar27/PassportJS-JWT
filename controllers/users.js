@@ -52,6 +52,10 @@ exports.userRegister = [
             const newUser = new User(data);
 
             try {
+                const existingUser = await User.findOne({ email: data.email });
+                if (existingUser) {
+                return response.status(400).json({ errors: [{ msg: "User already registered!" }] });
+                }
                 await newUser.save()
                     .then((user) => {
                         return response.status(201).json({
@@ -61,7 +65,6 @@ exports.userRegister = [
                                 name: user.name,
                                 email: user.email,
                                 userId: user.id,
-                                //isMfaActive: false
                             }
                         });                    
                     })
