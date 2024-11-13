@@ -200,7 +200,7 @@ const aliases = require('module-alias-jest/register')
 //};
 
 module.exports = {
-  //config,
-  moduleNameMapper: aliases.jest
+    moduleNameMapper: aliases.jest
 };
+  
 

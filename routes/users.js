@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {userRegister, login, setup2FA, reset2FA, verify2FA, userProfile, renewToken, logout, terminateSession, seed, addProductToOrder, checkMyOrder, fetchUserByAdmin, generateInvoice, downloadInvoice, checkInvoice, invoices} = require('@controllersUsers');
+const {userRegister, login, setup2FA, reset2FA, verify2FA, userProfile, renewToken, logout, terminateSession, seed, addProductToOrder, checkMyOrder, fetchUserByAdmin, generateInvoice, invoices} = require('@controllersUsers');
 const {restrict} = require('@middlewareRestrict');
 const authenticateJWT = require('@middlewareAuthenticateJWT');
 

@@ -11,8 +11,8 @@ const authenticateJWT = (req, res, next) => {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access" }] });
         }
 
-        console.log("Session type:", user.sessionType);  // 'access' or 'temporary'
-        console.log("Random identifier:", user.random);
+        // console.log("Session type:", user.sessionType);  // 'access' or 'temporary'
+        // console.log("Random identifier:", user.random);
 
         // Handle restrictions based on session type if necessary
         if (user.sessionType === 'temporary') {

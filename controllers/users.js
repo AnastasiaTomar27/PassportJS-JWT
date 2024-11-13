@@ -15,7 +15,7 @@ const QRCode = require('qrcode');
 const { buildPDF } = require('@buildPDF');
 const path = require('path');
 const fs = require('fs');
-const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // __dirname means the path of users.js, '..' means go from the routes folder
+const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // __dirname means the path of users.js, '..' means go from the controllers folder
 const { sendInvoiceEmail } = require('@emailService');
 
 
@@ -354,12 +354,12 @@ exports.logout = async (req, res) => {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
         }
 
-        console.log("Random identifier before logout:", currentRandom);
+        //console.log("Random identifier before logout:", currentRandom);
 
         // Filter out the agent associated with the current session, leaving others intact
         req.user.agents = req.user.agents.filter(agent => agent.random !== currentRandom);
 
-        console.log("Agents array after logout:", req.user.agents);
+        //console.log("Agents array after logout:", req.user.agents);
 
         // Save the updated user document to reflect the session removal
         await req.user.save();
@@ -387,14 +387,14 @@ exports.terminateSession = async (req,res) => {
             return res.status(404).json({ errors: [{msg: 'User not found'}] });
         }
     
-        console.log("User agents before:", user.agents);
+        //console.log("User agents before:", user.agents);
         // This is if I allow user to log in from one device
         //const random = user.agents.find(agent => agent.random)?.random;
         //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
 
         // this is if I allow user to log in from different devices, so I need to delete all random values from agents, to terminate sessions on different devices
         user.agents = [];
-        console.log("User agents after:", user.agents);
+        //console.log("User agents after:", user.agents);
 
         await user.save(); 
 
@@ -574,6 +574,7 @@ exports.fetchUserByAdmin = async (req, res) => {
 };
 
 exports.generateInvoice = async (req, res) => {
+    
     const { orderId } = req.body;
 
     if (!orderId) {
@@ -583,7 +584,10 @@ exports.generateInvoice = async (req, res) => {
     try {
         const order = await Order.findOne({ _id: orderId, userId: req.user._id })
             .populate('products') 
-            .populate('userId', 'name email');
+            .populate({
+                path: 'userId',      
+                select: 'name email' 
+            });
 
         if (!order) {
             return res.status(404).json({ errors: [{ msg: "Order not found or access denied" }] });
@@ -599,12 +603,13 @@ exports.generateInvoice = async (req, res) => {
 
         return res.status(200).json({ message: 'Invoice generated and sent successfully', fileUrl });
     } catch (error) {
-        console.error('Error generating invoice:', error);
-        if (error.errors) {
-            return res.status(500).json(error);  // will pass  error from pdf-service file: "Error writing PDF file"
-        } else {
-            return res.status(500).json({ errors: [{ msg: "Internal server error" }] });
-        }    }
+        console.error('Error generating invoice in catch block:', error.message);
+
+        // If an error occurs in the PDF generation process
+        return res.status(500).json({
+            errors: [{ msg: "Error generating PDF", details: error.message }]
+        });
+    }
 };
 
 // in browser I use ModHeader to put access token and check routes 
@@ -616,7 +621,7 @@ exports.invoices = async (req, res) => {
         // Define the path to your invoices directory and file location
         const filePath = path.join(invoicesDir, filename);
 
-        // Check if the file exists (optional, depending on your app)
+        // Check if the file exists
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ error: 'Invoice not found' });
         }

@@ -5,8 +5,8 @@ const fs = require('fs').promises;
 const transporter = nodemailer.createTransport({
     service: 'gmail', // Use Gmail's SMTP service
     auth: {
-        user: '123@gmail.com', // Gmail email address
-        pass: "ytlu xdrh wqxb jhgf" // I turned on 2FA and set App passwords, here should be that password
+        user: 'test@gmail.com', // Gmail email address
+        pass: "nhka wjrt azjb jhks" // I turned on 2FA and set App passwords, here should be that password
     }
 });
 
@@ -16,7 +16,7 @@ async function sendInvoiceEmail(order, recipientEmail, filePath) {
         await fs.access(filePath);  // This will throw an error if the file doesn't exist
 
         const mailOptions = {
-            from: '123@gmail.com',
+            from: 'test@gmail.com',
             to: recipientEmail,
             subject: 'Your Invoice',
             text: `Dear ${order.userId.name},\n\nPlease find attached your invoice.\n\nBest regards,\nYour Dream Company`,

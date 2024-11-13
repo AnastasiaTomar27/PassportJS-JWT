@@ -9,6 +9,21 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+const { buildPDF } = require('@buildPDF'); 
+const { sendInvoiceEmail } = require('@emailService'); 
+const tmp = require('tmp');
+const fs = require('fs');
+const path = require('path');
+const mock = require('mock-fs');
+
+
+jest.mock('@buildPDF', () => ({
+    buildPDF: jest.fn()
+  }));
+  
+jest.mock('@emailService', () => ({
+    sendInvoiceEmail: jest.fn(), 
+}));
 
 // Jest mocks the entire speakeasy. These mocked speakeasy functions don’t perform real 2FA operations; they just provide hardcoded responses, allowing us to verify how our route behaves based on expected input
 jest.mock('speakeasy', () => ({
@@ -1019,4 +1034,248 @@ describe("Product and Order Routes with Authentication", () => {
             expect(response.body.errors[0].msg).toBe('User not found');
         });
     });
+});
+
+describe("POST /api/generate-invoice", () => {
+    let accessToken, userId, random;
+    const mockOrder = {
+        _id: 'order-id',
+        userId: { _id: '672fb02d3dfcaeb9b979acee', name: 'John Doe', email: 'john.doe@example.com' },
+        products: [{ name: 'Product A', price: 100 }],
+
+    };
+
+    beforeAll(() => {
+        // Generate a random value to be used in the agents field
+        random = 'randomValue';
+        userId = '672fb02d3dfcaeb9b979acee';
+        
+        // Create a JWT with the random field in the payload
+        accessToken = jwt.sign({ _id: userId, random }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "1h" });
+        
+        // Mock the User model (assuming it's the User model that handles agents and tempAgents)
+        const mockUser = {
+            _id: userId,
+            agents: [{ random: 'randomValue' }],  // Mock the user having an agent with a matching random
+            tempAgents: [{ random: 'tempRandomValue' }]  // You can adjust this if necessary
+        };
+
+        
+        // Mock User.findById to return the mock user
+        User.findById = jest.fn().mockResolvedValue(mockUser);
+    });
+
+    beforeEach(() => {
+        // Clear all mocks before each test
+        jest.clearAllMocks();
+    });
+
+    it("should generate an invoice successfully", async () => {
+        Order.findOne = jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValueOnce(mockOrder),
+            }),
+        });
+          
+        buildPDF.mockResolvedValueOnce('/path/to/invoice.pdf');
+        sendInvoiceEmail.mockResolvedValueOnce(true);
+
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ orderId: 'order-id' });
+
+        expect(Order.findOne).toHaveBeenCalledWith({ _id: 'order-id', userId: userId });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.body.message).toBe('Invoice generated and sent successfully');
+        expect(response.body).toHaveProperty('fileUrl');
+    });
+
+    it("should return 404 if order is not found", async () => {
+        Order.findOne = jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValueOnce(null),
+            }),
+        });
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ orderId: 'non-existent-order-id' });
+
+        expect(response.statusCode).toBe(404);
+        expect(response.body.errors[0].msg).toBe("Order not found or access denied");
+    });
+
+    it("should return 400 if orderId is missing", async () => {
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({});
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.errors[0].msg).toBe("Order ID is required");
+    });
+
+    it("should return 500 if there's an error generating the invoice", async () => {
+        
+        Order.findOne = jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+                populate: jest.fn().mockResolvedValueOnce(mockOrder),
+            }),
+        });
+
+        buildPDF.mockRejectedValueOnce(new Error("Error writing PDF file"));
+        
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ orderId: 'order-id' });
+        
+        expect(Order.findOne).toHaveBeenCalledWith({ _id: 'order-id', userId: userId });  // Check if the method is called with the correct arguments
+        expect(buildPDF).toHaveBeenCalled();
+
+        expect(response.statusCode).toBe(500);
+        expect(response.body.errors[0].msg).toBe("Error generating PDF");
+        expect(response.body.errors[0].details).toBe("Error writing PDF file");
+    });
+
+
+    it("should generate a PDF in a temporary directory", async () => {
+        
+        
+        // Setup the absolute path for file system checks
+        const tempDir = path.join(__dirname, '..', 'temp');
+        const pdfFileName = 'invoice-672fb86119bba8fc4780c8ec.pdf';
+        const absolutePDFPath = path.join(tempDir, pdfFileName);
+    
+        // Configure the mock filesystem for this test only
+        mock({
+            [tempDir]: {
+                // Simulate the creation of a PDF file in the mock directory
+                [pdfFileName]: '', // Mock file creation
+            }
+        });
+    
+        try {
+            // Mock Order.findOne and buildPDF function as usual
+            Order.findOne = jest.fn().mockReturnValue({
+                populate: jest.fn().mockReturnValue({
+                    populate: jest.fn().mockResolvedValueOnce(mockOrder),
+                }),
+            });
+            buildPDF.mockResolvedValueOnce(absolutePDFPath);
+    
+            // Perform the API call to generate the invoice
+            const response = await request(app)
+                .post('/api/generate-invoice')
+                .set('Authorization', `Bearer ${accessToken}`)
+                .send({ orderId: 'order-id' });
+    
+            // Validate the response
+            expect(response.statusCode).toBe(200);
+            expect(response.body.message).toBe('Invoice generated and sent successfully');
+            expect(response.body.fileUrl).toBe(`/api/invoices/${pdfFileName}`);
+    
+            // Check if the file was created in the mock filesystem
+            expect(fs.existsSync(absolutePDFPath)).toBe(true);
+    
+        } finally {
+            // Restore the real filesystem after the test
+            mock.restore();
+        }
+    });
+});
+
+describe('Invoices Route', () => {
+    let accessToken, userId, random;
+
+    beforeEach(() => {
+        // Generate a random value to be used in the agents field
+        random = 'randomValue';
+        userId = '672fb02d3dfcaeb9b979acee';
+        
+        // Create a JWT with the random field in the payload
+        accessToken = jwt.sign({ _id: userId, random }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "1h" });
+
+        // Mock the User model (assuming it's the User model that handles agents and tempAgents)
+        const mockUser = {
+            _id: userId,
+            agents: [{ random: 'randomValue' }],  // Mock the user having an agent with a matching random
+            tempAgents: [{ random: 'tempRandomValue' }]  // Adjust this if necessary
+        };
+
+        // Mock User.findById to return the mock user
+        User.findById = jest.fn().mockResolvedValue(mockUser);
+
+        // Mock fs.existsSync to simulate file existence for the test
+        const invoicesDir = path.join(__dirname, '..', 'service', 'invoices');
+        
+        // Simulate that the file exists in the invoices directory
+        mock({
+            [invoicesDir]: {
+                'invoice-672fb86119bba8fc4780c8ec.pdf': '', // Simulate an existing file (empty file)
+            },
+        });
+        jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+
+    });
+
+    afterEach(() => {
+        mock.restore(); // Restore the real filesystem after each test
+    });
+
+    it('should return the file for viewing if it exists', async () => {
+        const filename = 'invoice-672fb86119bba8fc4780c8ec.pdf';
+
+        // Send a GET request to fetch the invoice file
+        const response = await request(app)
+            .get(`/api/invoices/${filename}`)
+            .set('Authorization', `Bearer ${accessToken}`); // Include the JWT token in the Authorization header
+
+        // Assert that the file is returned correctly for viewing
+        expect(response.status).toBe(200);  // Expect HTTP 200 (OK) status
+        expect(response.headers['content-type']).toBe('application/pdf');  // Expect the content type to be PDF
+    });
+
+    it('should return 404 if invoice file does not exist', async () => {
+        // Simulate the invoice file not existing
+        jest.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+        const filename = 'nonexistent-invoice.pdf';
+        const response = await request(app)
+            .get(`/api/invoices/${filename}`)
+            .set('Authorization', `Bearer ${accessToken}`) // Include the JWT token in the Authorization header
+
+        // Assert that it returns a 404 error if the file doesn't exist
+        expect(response.status).toBe(404);
+        expect(response.body.error).toBe('Invoice not found');
+    });
+
+    it('should return a 500 error if there is a file system error', async () => {
+        jest.spyOn(fs, 'existsSync').mockImplementationOnce(() => { throw new Error('File system error'); });
+
+        const filename = 'invoice-672fb86119bba8fc4780c8ec.pdf';
+        const response = await request(app)
+            .get(`/api/invoices/${filename}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+
+        // Assert that a 500 error is returned if there is a file system error
+        expect(response.status).toBe(500);
+        expect(response.body.error).toBe('Internal server error.');
+    });
+    it('should prompt download when download=true is set in the query', async () => {
+        const filename = 'invoice-672fb86119bba8fc4780c8ec.pdf';
+        
+        // Send a GET request with the download=true query parameter
+        const response = await request(app)
+            .get(`/api/invoices/${filename}?download=true`)
+            .set('Authorization', `Bearer ${accessToken}`);
+    
+        // Assert the status and headers for a download response
+        expect(response.status).toBe(200);
+        expect(response.headers['content-disposition']).toContain('attachment');  // Download should trigger attachment
+        expect(response.headers['content-disposition']).toContain(filename);  // Should contain the filename for the download
+    });
+    
 });
