@@ -48,10 +48,10 @@ const UserSchema = new mongoose.Schema({
         default: null
     }
     
-    },
-    {
-        timestamps: true
-    }
+},
+{
+    timestamps: true
+}
 );
 
 //Hash password before saving the user document

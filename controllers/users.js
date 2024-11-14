@@ -99,10 +99,6 @@ exports.login = [
             }
 
             const randomIdentifier = crypto.randomBytes(16).toString('hex');
-
-            // if (!user.tempAgents) {
-            //     user.tempAgents = [];
-            // }
             
             const random = randomIdentifier
 
