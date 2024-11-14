@@ -42,7 +42,11 @@ const UserSchema = new mongoose.Schema({
     order: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Order'
-    }]
+    }],
+    deletedAt: {
+        type: Date,
+        default: null
+    }
     
     },
     {
