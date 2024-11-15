@@ -1,6 +1,3 @@
-// const mongoose = require('mongoose');
-// mongoose.connect(process.env.MONGODB_URL)
-// console.log("Connected to MongoDB")
 const mongoose = require('mongoose');
 const { MongoMemoryServer }  = require('mongodb-memory-server');
 

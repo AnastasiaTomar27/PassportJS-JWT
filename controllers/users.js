@@ -1,4 +1,4 @@
-const User = require('@modelsUser');
+const User = require('@modelUser');
 const passport = require('passport');
 const crypto = require('crypto');
 const { validationResult, matchedData, body } = require('express-validator');

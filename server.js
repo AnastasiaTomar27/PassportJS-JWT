@@ -7,7 +7,6 @@ require('@mongooseConnection')
 const { connectDB } = require('@mongooseConnection')
 const passportConfig = require('@passport');
 const routes = require("@routesUsers");
-//const cookieParser = require('cookie-parser');
 
 const app = express();
 // Serve static files from the "invoices" directory
@@ -22,12 +21,9 @@ const mongoUri = process.env.NODE_ENV === 'test'
   ? 'mongodb://localhost:27017/test' 
   : process.env.MONGODB_URL;
 
-//const PORT = 8002
 const PORT = process.env.PORT || 4000; 
 
-// middleware
 app.use(express.json());
-//app.use(cookieParser("jwt learning")); // it makes the cookies easily readable from the request.cookies
 
 app.use(passport.initialize()); //  import and initialize Passport globally so that it's available across all routes
 

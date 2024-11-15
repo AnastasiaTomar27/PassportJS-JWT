@@ -4,7 +4,6 @@ const path = require('path');
 const invoicesDir = path.join(__dirname, 'invoices'); // __dirname means the path to service folder
 
 function buildPDF(order) {
-    console.log('Order ID passed to buildPDF functionnnnn: ', order._id); // Log inside the buildPDF function
 
     // Promise gives the function an asynchronous structure
     return new Promise((resolve, reject) => {
@@ -49,12 +48,9 @@ function buildPDF(order) {
 
         // listens for the finish event on the stream
         stream.on('finish', () => {
-            console.log("PDF generation finished forrrr:", filePath); 
             resolve(filePath);
         });        
         stream.on('error', (error) => {
-            console.error("Error writing PDF fileeee:", error);
-            console.error(error.stack); // Additional error stack for more detail
             reject({ errors: [{ msg: "Error writing PDF file" }] });
         });    }); 
 }
