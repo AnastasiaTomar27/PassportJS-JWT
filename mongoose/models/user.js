@@ -33,7 +33,7 @@ const UserSchema = new mongoose.Schema({
     },
     agents: {
         type: Array,
-        default: [] 
+        default: [], 
     },
     tempAgents: {
         type: Array,

@@ -19,4 +19,5 @@ router.get('/checkMyOrder', authenticateJWT, checkMyOrder);
 router.get('/admin/fetchUser', authenticateJWT, restrict('admin'), fetchUserByAdmin);
 router.post('/generate-invoice', authenticateJWT, generateInvoice);
 router.get('/invoices/:filename', authenticateJWT, invoices);
+
 module.exports = router;

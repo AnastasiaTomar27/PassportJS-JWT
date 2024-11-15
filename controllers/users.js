@@ -20,58 +20,58 @@ const { sendInvoiceEmail } = require('@emailService');
 
 
 exports.userRegister = [
-        [
-        body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
-        body("email").notEmpty().isLength({ max: 30 }).withMessage('Email must be maximum of 30 characters.').isString().isEmail(),
-        body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
-            .custom(async (value) => {
-                const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
-                if (!passwordRegex.test(value)) {
-                    throw new Error(); }
-                }).withMessage("User password configuration is invalid"),  
-        body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role')
-        .custom(async (role, { req }) => {
-            // If the user selects 'admin', validate the password
-            if (role === 'admin') {
-                const { adminPassword } = req.body;
-                if (adminPassword !== ADMIN_PASSWORD) {
-                    throw new Error('Incorrect admin password.');
-                }
+    [
+    body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
+    body("email").notEmpty().isLength({ max: 30 }).withMessage('Email must be maximum of 30 characters.').isString().isEmail(),
+    body("password").notEmpty().isLength({ max: 20 }).withMessage('Password must be maximum of 20 characters.').isString()
+        .custom(async (value) => {
+            const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
+            if (!passwordRegex.test(value)) {
+                throw new Error(); }
+            }).withMessage("User password configuration is invalid"),  
+    body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role')
+    .custom(async (role, { req }) => {
+        // If the user selects 'admin', validate the password
+        if (role === 'admin') {
+            const { adminPassword } = req.body;
+            if (adminPassword !== ADMIN_PASSWORD) {
+                throw new Error('Incorrect admin password.');
             }
-            return true;
-        }).withMessage('Role selection failed.') 
-        ],
-        async (request, response) => {
-            const result = validationResult(request);
-    
-            if (!result.isEmpty()) {
-                return response.status(400).send({ errors: result.array() });
-            }     
-    
-            const data = matchedData(request);
-            const newUser = new User(data);
-
-            await newUser.save()
-                .then((user) => {
-                    return response.status(201).json({
-                        success: true,
-                        msg: "User created",
-                        data: {
-                            name: user.name,
-                            email: user.email,
-                            userId: user.id,
-                        }
-                    });                    
-                })
-                .catch((e) => {
-                    //console.error("Error while saving user:", e); 
-                    if (e.code === 11000) {
-                        return response.status(400).send({ errors: [{msg: "User already registered!"}] });
-                    } else {
-                        return response.status(500).send({ errors: [{msg: "An error occurred while registering the user."}] });
-                    }
-                });
         }
+        return true;
+    }).withMessage('Role selection failed.') 
+    ],
+    async (request, response) => {
+        const result = validationResult(request);
+
+        if (!result.isEmpty()) {
+            return response.status(400).send({ errors: result.array() });
+        }     
+
+        const data = matchedData(request);
+        const newUser = new User(data);
+
+        await newUser.save()
+            .then((user) => {
+                return response.status(201).json({
+                    success: true,
+                    msg: "User created",
+                    data: {
+                        name: user.name,
+                        email: user.email,
+                        userId: user.id,
+                    }
+                });                    
+            })
+            .catch((e) => {
+                //console.error("Error while saving user:", e); 
+                if (e.code === 11000) {
+                    return response.status(400).send({ errors: [{msg: "User already registered!"}] });
+                } else {
+                    return response.status(500).send({ errors: [{msg: "An error occurred while registering the user."}] });
+                }
+            });
+    }
 ]
 
 exports.login = [
@@ -286,8 +286,7 @@ exports.renewToken = async (req, res) => {
         //decoded -decoded payload (user id, random)
         jwt.verify(refreshToken, keys2, async (err, decoded) => {
             if (err) {
-                // 401 -request was not successful because it 
-                // lacks valid authentication credentials for the requested resource
+                // 401 -request was not successful because it lacks valid authentication credentials for the requested resource
                 return res.status(401).json({ errors: [{msg: "Invalid or expired refresh token"}] });
             }
             const user = await User.findById(decoded._id);
@@ -295,10 +294,12 @@ exports.renewToken = async (req, res) => {
                 // 404 - error is about a missing resource
                 return res.status(404).json({ errors: [{msg: "User not found"}] });
             }
+
+            // deleting current random
+            user.agents = user.agents.filter(agent => agent.random !== decoded.random);
+
             const sessionRandom = crypto.randomBytes(16).toString('hex');
             
-            user.agents = [];
-
             const random = sessionRandom
             user.agents.push({
                 random
