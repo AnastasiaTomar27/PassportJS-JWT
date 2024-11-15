@@ -1,12 +1,14 @@
 const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
+const email = process.env.MY_EMAIL;
+const password = process.env.MY_PASSWORD;
 
 // Configure Nodemailer
 const transporter = nodemailer.createTransport({
     service: 'gmail', // Use Gmail's SMTP service
     auth: {
-        user: 'test@gmail.com', // Gmail email address
-        pass: "nhka wjrt azjb jhks" // I turned on 2FA and set App passwords, here should be that password
+        user: email, // Gmail email address
+        pass: password // I turned on 2FA and set App passwords, here should be that password
     }
 });
 
