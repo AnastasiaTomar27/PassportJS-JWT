@@ -24,14 +24,14 @@ module.exports = (passport) => {
                     const findUser = await User.findOne({ email });
                     if (!findUser) {
                         // user not found
-                        return done(null, false); //null - no errors in server side, false - eroor in user auth
+                        return done(null, null); //null - no errors in server side, false - eroor in user auth
                     }
                     const isMatch = await findUser.comparePassword(password);
                     if (!isMatch) {
-                        return done(null, false);
+                        return done(null, null);
                     };
                     if (findUser.deletedAt) {
-                        return done(null, false);
+                        return done(null, null);
                     }
                     done(null, findUser);
                 } catch (err) {

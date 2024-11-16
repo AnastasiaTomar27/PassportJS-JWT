@@ -102,12 +102,12 @@ exports.login = [
             
             const random = randomIdentifier
 
-            user.tempAgents = [{ random: randomIdentifier }];
+            user.tempAgents.push({ random }); // push means I allow user to log in from different devices
 
             user.isTwoFactorVerified = false;
 
             try {
-                await user.save(); // Save the updated agents array to the database
+                await user.save();
             } catch (saveError) {
                 console.error("Error saving user agents:", saveError);
                 return response.status(500).send({ errors: [{msg: "Error saving user agents"}] });
@@ -219,13 +219,13 @@ exports.verify2FA = async (req, res) => {
 
     if (verified) {
         const sessionRandom = crypto.randomBytes(16).toString('hex');
-
-        // if (!user.agents) {
-        //     user.agents = []; // [] means I allow user to log in from different devices
-        // }
         
         const random = sessionRandom;
         user.agents.push({ random }); // push means I allow user to log in from different devices
+
+        // Remove only the current `random` from tempAgents
+        const currentRandom = req.user.random; // This is set in the passport-jwt strategy
+        user.tempAgents = user.tempAgents.filter(tempAgent => tempAgent.random !== currentRandom);
 
         user.isTwoFactorVerified = true;
 
@@ -289,24 +289,27 @@ exports.renewToken = async (req, res) => {
                 // 401 -request was not successful because it lacks valid authentication credentials for the requested resource
                 return res.status(401).json({ errors: [{msg: "Invalid or expired refresh token"}] });
             }
+
             const user = await User.findById(decoded._id);
+            // in case user was deleted but refresh token is still
             if (!user) {
                 // 404 - error is about a missing resource
                 return res.status(404).json({ errors: [{msg: "User not found"}] });
             }
 
-            // deleting current random
-            user.agents = user.agents.filter(agent => agent.random !== decoded.random);
-
             const sessionRandom = crypto.randomBytes(16).toString('hex');
-            
+
             const random = sessionRandom
             user.agents.push({
                 random
             })
-            
             try {
+                 // deleting old random 
+                user.agents = user.agents.filter(agent => agent.random !== decoded.random);
+ 
                 await user.save(); 
+
+               
             } catch (saveError) {
                 return response.status(500).json({ errors: [{msg: "Error saving user agents"}] });
             } 
@@ -320,7 +323,6 @@ exports.renewToken = async (req, res) => {
             } catch (err) {
                 return response.status(500).json({ errors: [{msg: "Error generating tokens"}] });
             }
-
             return res.json({
                 status: true,
                 accessToken: newAccessToken,
@@ -342,14 +344,9 @@ exports.logout = async (req, res) => {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
         }
 
-        //console.log("Random identifier before logout:", currentRandom);
-
         // only current random value will be deleted, user can access routes on other devices with other random values in jwt
         req.user.agents = req.user.agents.filter(agent => agent.random !== currentRandom);
 
-        //console.log("Agents array after logout:", req.user.agents);
-
-        // Save the updated user document to reflect the session removal
         await req.user.save();
 
         return res.status(200).json({ msg: "Logged out successfully" });
@@ -378,8 +375,9 @@ exports.terminateSession = async (req,res) => {
         //console.log("User agents before:", user.agents);
         
         // Admin removes only current random value from current session, but user not terminated from other devices
-        //const random = user.agents.find(agent => agent.random)?.random;
-        //user.agents = user.agents.filter(agent => agent.random !== random); // will remove random from agents array
+        // const currentRandom = user.random; 
+        // user.agents = user.agents.filter(agent => agent.random !== currentRandom);
+
 
         // admin deletes all random values from agents, to terminate all sessions on different devices
         user.agents = [];

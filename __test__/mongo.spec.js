@@ -655,7 +655,6 @@ describe("User Routes", () => {
             const response = await request(app)
                 .post('/api/renewAccessToken')
                 .send({ refreshToken });
-    
             expect(response.statusCode).toBe(200);
             expect(response.body).toHaveProperty('accessToken');
             expect(response.body).toHaveProperty('refreshToken');
