@@ -15,12 +15,6 @@ const app = express();
 
 connectDB()
 
-//Define the MongoDB URI based on the environment
-// MongoDB connection URI (Uniform Resource Identifier)
-// const mongoUri = process.env.NODE_ENV === 'test'
-//   ? 'mongodb://localhost:27017/test' 
-//   : process.env.MONGODB_URL;
-
 const PORT = process.env.PORT || 4000; 
 
 app.use(express.json());

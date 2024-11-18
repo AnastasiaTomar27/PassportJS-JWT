@@ -110,7 +110,7 @@ describe("User Routes", () => {
         });
 
         describe("Registering with invalid credentials", () => {
-            it("NAME: should return validation error for name, if it is empty", async () => {
+            it("NAME: should return validation error for name, if it is not provided", async () => {
                 const response = await request(app)
                     .post('/api/signup')
                     .send({
@@ -145,7 +145,7 @@ describe("User Routes", () => {
                 expect(response.status).toBe(400);
                 expect(response.body.errors[0].msg).toBe("Invalid value");
             });
-            it("EMAIL: should return validation error for email, if it is empty", async () => {
+            it("EMAIL: should return validation error for email, if it is not provided", async () => {
                 const response = await request(app)
                     .post('/api/signup')
                     .send({
@@ -192,7 +192,7 @@ describe("User Routes", () => {
                 expect(response.status).toBe(400);
                 expect(response.body.errors[0].msg).toBe("Invalid value");
             });
-            it("PASSWORD: should return validation error for password, if it is empty", async () => {
+            it("PASSWORD: should return validation error for password, if it is not provided", async () => {
                 const response = await request(app)
                     .post('/api/signup')
                     .send({
@@ -254,7 +254,6 @@ describe("User Routes", () => {
         });
         describe("Logging with valid credentials", () => {
             it("should login a user and return access and refresh tokens", async () => {
-                // login user
                 const response = await request(app)
                     .post('/api/login')
                     .send({
@@ -355,14 +354,12 @@ describe("User Routes", () => {
             });
             // Mock QRCode generation
             QRCode.toDataURL.mockResolvedValue("fakeQRCodeUrl");
-            // const token = jwt.sign({ _id: user._id }, 'your-secret-key'); // Generate a JWT token
 
             const response = await request(app)
                 .post('/api/setup2FA')
                 .set('Authorization', `Bearer ${temporaryToken}`);
 
             expect(response.status).toBe(200);
-            //expect(response.body.secret).toBe("secret123");
             expect(response.body.QRCode).toBe("fakeQRCodeUrl");
         });
 
