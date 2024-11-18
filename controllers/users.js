@@ -109,7 +109,6 @@ exports.login = [
             try {
                 await user.save();
             } catch (saveError) {
-                console.error("Error saving user agents:", saveError);
                 return response.status(500).send({ errors: [{msg: "Error saving user agents"}] });
             } 
 
@@ -122,7 +121,7 @@ exports.login = [
                 return response.status(500).send({ errors: [{msg: "Error generating temporary token"}] });
             }
 
-            const needs2FASetup = !user.twoFactorSecret;
+            const needs2FASetup = !user.twoFactorSecret; //(falsy: user hasn't set up 2FA)
 
             return response.json({
                 msg: needs2FASetup ? "Please set up Two-Factor Authentication." : "TOTP required",
@@ -291,7 +290,6 @@ exports.renewToken = async (req, res) => {
             }
 
             const user = await User.findById(decoded._id);
-            // in case user was deleted but refresh token is still
             if (!user) {
                 // 404 - error is about a missing resource
                 return res.status(404).json({ errors: [{msg: "User not found"}] });
