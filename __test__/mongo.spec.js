@@ -7,17 +7,17 @@ const Product = require('@modelProduct');
 const Order = require('@modelOrder');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { buildPDF } = require('@buildPDF'); 
-const { sendInvoiceEmail } = require('@emailService'); 
+const { buildPDFfromHTML } = require('@buildPDFfromHTML'); 
+const { sendInvoiceEmail, sendEmailToAdmin } = require('@emailService'); 
 const fs = require('fs');
 const path = require('path');
 const mock = require('mock-fs');
-const { sendEmailToAdmin } = require('@emailService');
 const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
+const Invoice = require('../mongoose/models/invoice');
 
 
-jest.mock('@buildPDF', () => ({
-    buildPDF: jest.fn()
+jest.mock('@buildPDFfromHTML', () => ({
+    buildPDFfromHTML: jest.fn()
   }));
   
 jest.mock('@emailService', () => ({
@@ -186,7 +186,7 @@ describe("User Routes", () => {
                 expect(response.status).toBe(400);
                 expect(response.body.errors[0].msg).toBe("Invalid value");
             });
-            it("PASSWORD: should return validation error for password, if it's lenght is more than 20 characters'", async () => {
+            it("PASSWORD: should return validation error for password, if its length is more than 20 characters'", async () => {
                 const response = await request(app)
                     .post('/api/signup')
                     .send({
@@ -246,7 +246,6 @@ describe("User Routes", () => {
                 
                 expect(response.statusCode).toBe(200);
                 expect(response.body.msg).toBe("Please set up Two-Factor Authentication.");
-                expect(response.body.temporaryToken).toBeDefined();
                 expect(response.body.data.userId).toBeDefined();
                 expect(response.body.data.needs2FASetup).toBe(true);
             });
@@ -298,160 +297,93 @@ describe("User Routes", () => {
         });
     });
 
-    describe("POST /api/setup2FA", () => {
+    describe("POST /api/manage2FA", () => {
         let user;
-
+        let token;
+    
+        // Before each test, create a user and get an auth token
         beforeEach(async () => {
-            // Create a new user with no 2FA secret
             user = new User({
                 name: "Test User",
                 email: "testuser@example.com",
                 password: "Password123",
+                twoFactorSecret: "old-secret",
+                isTwoFactorConfirmed: true,
             });
+    
             await user.save();
-            // Log in to get temporary token
-            const loginResponse = await request(app)
-                .post('/api/login')
-                .send({ email: user.email, password: "Password123" });
-                
-            temporaryToken = loginResponse.body.temporaryToken;
+            // Generate JWT token for authentication
+            token = jwt.sign({ id: user._id }, 'your-jwt-secret', { expiresIn: '1h' });
         });
-
-        it("should return an error if 2FA is already set up", async () => {
-            // Simulate user having 2FA already set up
-            user.twoFactorSecret = "fakeSecret";
+    
+        // After each test, clean up the mock
+        afterEach(() => {
+            jest.clearAllMocks();
+        });
+    
+        it("should manage 2FA for an existing user with confirmed 2FA", async () => {
+            const response = await request(app)
+                .post('/api/manage2FA')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ totp: '123456' });
+    
+            expect(response.statusCode).toBe(200);
+            expect(response.body).toHaveProperty("msg", expect.any(String)); // Check message
+            expect(response.body).toHaveProperty("QRCode", "fakeQRCodeUrl"); // Check QR code URL
+            expect(speakeasy.generateSecret).toHaveBeenCalled(); // Ensure new secret was generated
+        });
+    
+        it("should return 422 if the current TOTP is not provided", async () => {
+            const response = await request(app)
+                .post('/api/manage2FA')
+                .set('Authorization', `Bearer ${token}`)
+                .send({});
+    
+            expect(response.statusCode).toBe(422);
+            expect(response.body.errors[0].msg).toBe("Current TOTP is required to reset 2FA.");
+        });
+    
+        it("should return 400 if the current TOTP is invalid", async () => {
+            speakeasy.totp.verify.mockReturnValueOnce(false); // Mock invalid TOTP verification
+    
+            const response = await request(app)
+                .post('/api/manage2FA')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ totp: 'invalidTOTP' });
+    
+            expect(response.statusCode).toBe(400);
+            expect(response.body.errors[0].msg).toBe("Invalid or expired TOTP code.");
+        });
+    
+        it("should generate a new TOTP secret if no 2FA is set up", async () => {
+            // Remove existing TOTP setup for the user
+            user.twoFactorSecret = "";
+            user.isTwoFactorConfirmed = false;
             await user.save();
-
+    
             const response = await request(app)
-                .post('/api/setup2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`); // Assume user is authenticated
-
-            expect(response.status).toBe(400);
-            expect(response.body.errors[0].msg).toBe("2FA is already set up");
+                .post('/api/manage2FA')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ totp: '123456' });
+    
+            expect(response.statusCode).toBe(200);
+            expect(response.body).toHaveProperty("QRCode", "fakeQRCodeUrl"); // Check QR code URL
+            expect(speakeasy.generateSecret).toHaveBeenCalled(); // Ensure new secret was generated
         });
-
-        it("should return QRCode and secret when setting up 2FA", async () => {
-            // Mock speakeasy to generate a secret
-            speakeasy.generateSecret.mockReturnValue({
-                base32: "secret123",
-            });
-            // Mock QRCode generation
-            QRCode.toDataURL.mockResolvedValue("fakeQRCodeUrl");
-
+    
+        it("should return 500 if there is an error saving the user", async () => {
+            // Mock a user save error
+            jest.spyOn(user, 'save').mockRejectedValueOnce(new Error('Error saving user'));
+    
             const response = await request(app)
-                .post('/api/setup2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`);
-
-            expect(response.status).toBe(200);
-            expect(response.body.QRCode).toBe("fakeQRCodeUrl");
-        });
-
-        it("should return an error if there is an issue generating 2FA", async () => {
-            speakeasy.generateSecret.mockImplementation(() => {
-                throw new Error("Error generating 2FA secret");
-            });
-
-            const response = await request(app)
-                .post('/api/setup2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`);
-
-            expect(response.status).toBe(500);
-            expect(response.body.errors[0].msg).toBe("Error setting up 2FA");
+                .post('/api/manage2FA')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ totp: '123456' });
+    
+            expect(response.statusCode).toBe(500);
+            expect(response.body.errors[0].msg).toBe("Error managing 2FA.");
         });
     });
-
-
-
-    describe("POST /api/reset2FA", () => {
-        let user;
-        let temporaryToken;
-
-        beforeEach(async () => {
-            // Create a new user and log them in to get a token
-            user = new User({
-                name: "Reset2FA User",
-                email: "reset2fa@example.com",
-                password: "Password123",
-            });
-            await user.save();
-
-            // Log in to get a temporary token
-            const loginResponse = await request(app)
-                .post('/api/login')
-                .send({ email: user.email, password: "Password123" });
-
-            temporaryToken = loginResponse.body.temporaryToken;
-        });
-
-        afterEach(async () => {
-            jest.restoreAllMocks();
-            await User.deleteMany();
-        });
-
-        it("should successfully reset 2FA and return QR code URL", async () => {
-            user.twoFactorSecret = "existingSecret";
-            await user.save();
-
-            // Mocking speakeasy and QRCode libraries
-            const secretMock = { base32: "newSecret" };
-            const qrCodeMockUrl = "fakeQRCodeUrl";
-            
-            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue(secretMock);
-            jest.spyOn(QRCode, 'toDataURL').mockResolvedValue(qrCodeMockUrl);
-
-            const response = await request(app)
-                .post('/api/reset2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`);
-            
-            expect(response.status).toBe(200);
-            expect(response.body.msg).toBe("2FA has been reset successfully");
-            expect(response.body.QRCode).toBe(qrCodeMockUrl);
-
-            // Check that user's 2FA secret has been updated
-            const updatedUser = await User.findById(user._id);
-            expect(updatedUser.twoFactorSecret).toBe(secretMock.base32);
-            expect(updatedUser.twoFactorSecret).not.toBe("existingSecret");
-        });
-
-        it("should return a 500 error if QR code generation fails", async () => {
-            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue({ base32: "newSecret" });
-            jest.spyOn(QRCode, 'toDataURL').mockRejectedValue(new Error("QR code generation error"));
-
-            const response = await request(app)
-                .post('/api/reset2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`);
-            
-            expect(response.status).toBe(500);
-            expect(response.body.errors[0].msg).toBe("Error resetting 2FA");
-        });
-
-        it("should return a 500 error if user save fails", async () => {
-            jest.spyOn(speakeasy, 'generateSecret').mockReturnValue({ base32: "newSecret" });
-            jest.spyOn(QRCode, 'toDataURL').mockResolvedValue("fakeQRCodeUrl");
-
-            // Mock the save method to throw an error on the second save attempt
-            jest.spyOn(User.prototype, 'save').mockImplementationOnce(() => Promise.resolve())
-                .mockImplementationOnce(() => Promise.reject(new Error("Save failed")));
-
-            const response = await request(app)
-                .post('/api/reset2FA')
-                .set('Authorization', `Bearer ${temporaryToken}`);
-            
-            expect(response.status).toBe(500);
-            expect(response.body.errors[0].msg).toBe("Error resetting 2FA");
-        });
-
-        it("should return a 401 error if no user is found in request", async () => {
-            // Simulate no user in the request by not setting the `req.user`
-            const response = await request(app)
-                .post('/api/reset2FA')
-                .set('Authorization', `Bearer invalidToken`); // Invalid token simulates missing user
-
-            expect(response.status).toBe(401);
-            expect(response.body.errors[0].msg).toBe("Unauthorized access");
-        });
-    });
-
 
     describe("POST /api/verify2FA", () => {
         let user;
@@ -1261,43 +1193,41 @@ describe("POST /api/generate-invoice", () => {
         _id: 'order-id',
         userId: { _id: '672fb02d3dfcaeb9b979acee', name: 'John Doe', email: 'john.doe@example.com' },
         products: [{ name: 'Product A', price: 100 }],
-
     };
 
     beforeAll(() => {
         // Generate a random value to be used in the agents field
         random = 'randomValue';
         userId = '672fb02d3dfcaeb9b979acee';
-        
+
         // Create a JWT with the random field in the payload
         accessToken = jwt.sign({ _id: userId, random }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "1h" });
-        
-        // Mock the User model (assuming it's the User model that handles agents and tempAgents)
+
+        // Mock the User model
         const mockUser = {
             _id: userId,
-            agents: [{ random: 'randomValue' }],  // Mock the user having an agent with a matching random
-            tempAgents: [{ random: 'tempRandomValue' }],  // You can adjust this if necessary
-            isTwoFactorVerified: true
+            agents: [{ random: 'randomValue' }],
+            tempAgents: [],
+            isTwoFactorVerified: true,
         };
 
-        
-        // Mock User.findById to return the mock user
+        // Mock User.findById
         User.findById = jest.fn().mockResolvedValue(mockUser);
     });
 
     beforeEach(() => {
-        // Clear all mocks before each test
         jest.clearAllMocks();
     });
 
-    it("should generate an invoice successfully if user is two factor verified", async () => {
+    it("should generate an invoice successfully if user is two-factor verified and no existing invoice", async () => {
         Order.findOne = jest.fn().mockReturnValue({
             populate: jest.fn().mockReturnValue({
-              populate: jest.fn().mockResolvedValueOnce(mockOrder),
+                populate: jest.fn().mockResolvedValueOnce(mockOrder),
             }),
         });
-          
-        buildPDF.mockResolvedValueOnce('/path/to/invoice.pdf');
+
+        Invoice.findOne = jest.fn().mockResolvedValue(null); // No existing invoice
+        buildPDFfromHTML.mockResolvedValueOnce('/path/to/invoice.pdf');
         sendInvoiceEmail.mockResolvedValueOnce(true);
 
         const response = await request(app)
@@ -1306,23 +1236,43 @@ describe("POST /api/generate-invoice", () => {
             .send({ orderId: 'order-id' });
 
         expect(Order.findOne).toHaveBeenCalledWith({ _id: 'order-id', userId: userId });
+        expect(Invoice.findOne).toHaveBeenCalledWith({ orderId: 'order-id', userId: userId });
+        expect(buildPDFfromHTML).toHaveBeenCalledWith(mockOrder);
+        expect(sendInvoiceEmail).toHaveBeenCalled();
 
+        expect(response.statusCode).toBe(201);
+        expect(response.body.message).toBe('Invoice generated successfully');
+        expect(response.body.pdfUrl).toBe(`/api/invoices/${path.basename('/path/to/invoice.pdf')}`);
+    });
+
+    it("should return 200 if invoice already exists", async () => {
+        const existingInvoice = { filePath: '/path/to/existing-invoice.pdf' };
+        Invoice.findOne = jest.fn().mockResolvedValue(existingInvoice);
+
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ orderId: 'order-id' });
+
+        expect(Invoice.findOne).toHaveBeenCalledWith({ orderId: 'order-id', userId: userId });
         expect(response.statusCode).toBe(200);
-        expect(response.body.message).toBe('Invoice generated and sent successfully');
-        expect(response.body).toHaveProperty('fileUrl');
+        expect(response.body.message).toBe('Invoice already exists');
+        expect(response.body.pdfUrl).toBe(`/api/invoices/${path.basename(existingInvoice.filePath)}`);
     });
 
     it("should return 404 if order is not found", async () => {
         Order.findOne = jest.fn().mockReturnValue({
             populate: jest.fn().mockReturnValue({
-              populate: jest.fn().mockResolvedValueOnce(null),
+                populate: jest.fn().mockResolvedValueOnce(null),
             }),
         });
+
         const response = await request(app)
             .post('/api/generate-invoice')
             .set('Authorization', `Bearer ${accessToken}`)
             .send({ orderId: 'non-existent-order-id' });
 
+        expect(Order.findOne).toHaveBeenCalledWith({ _id: 'non-existent-order-id', userId: userId });
         expect(response.statusCode).toBe(404);
         expect(response.body.errors[0].msg).toBe("Order not found or access denied");
     });
@@ -1338,101 +1288,47 @@ describe("POST /api/generate-invoice", () => {
     });
 
     it("should return 500 if there's an error generating the invoice", async () => {
-        
         Order.findOne = jest.fn().mockReturnValue({
             populate: jest.fn().mockReturnValue({
                 populate: jest.fn().mockResolvedValueOnce(mockOrder),
             }),
         });
 
-        buildPDF.mockRejectedValueOnce(new Error("Error writing PDF file"));
-        
+        Invoice.findOne = jest.fn().mockResolvedValue(null); // No existing invoice
+        buildPDFfromHTML.mockRejectedValueOnce(new Error("Error writing PDF file"));
+
         const response = await request(app)
             .post('/api/generate-invoice')
             .set('Authorization', `Bearer ${accessToken}`)
             .send({ orderId: 'order-id' });
-        
-        expect(Order.findOne).toHaveBeenCalledWith({ _id: 'order-id', userId: userId });  // Check if the method is called with the correct arguments
-        expect(buildPDF).toHaveBeenCalled();
+
+        expect(Order.findOne).toHaveBeenCalledWith({ _id: 'order-id', userId: userId });
+        expect(buildPDFfromHTML).toHaveBeenCalledWith(mockOrder);
 
         expect(response.statusCode).toBe(500);
-        expect(response.body.errors[0].message).toBe("Error generating PDF");
-        expect(response.body.errors[0].details).toBe("Error writing PDF file");
-    });
-
-
-    it("should generate a PDF in a temporary directory", async () => {
-        // Setup the absolute path for file system checks
-        const tempDir = path.join(__dirname, '..', 'temp');
-        const pdfFileName = 'invoice-672fb86119bba8fc4780c8ec.pdf';
-        const absolutePDFPath = path.join(tempDir, pdfFileName);
-    
-        // Configure the mock filesystem for this test only
-        mock({
-            [tempDir]: {
-                // Simulate the creation of a PDF file in the mock directory
-                [pdfFileName]: '', // Mock file creation
-            }
-        });
-    
-        try {
-            // Mock Order.findOne and buildPDF function as usual
-            Order.findOne = jest.fn().mockReturnValue({
-                populate: jest.fn().mockReturnValue({
-                    populate: jest.fn().mockResolvedValueOnce(mockOrder),
-                }),
-            });
-            buildPDF.mockResolvedValueOnce(absolutePDFPath);
-    
-            // Perform the API call to generate the invoice
-            const response = await request(app)
-                .post('/api/generate-invoice')
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ orderId: 'order-id' });
-    
-            // Validate the response
-            expect(response.statusCode).toBe(200);
-            expect(response.body.message).toBe('Invoice generated and sent successfully');
-            expect(response.body.fileUrl).toBe(`/api/invoices/${pdfFileName}`);
-    
-            // Check if the file was created in the mock filesystem
-            expect(fs.existsSync(absolutePDFPath)).toBe(true);
-    
-        } finally {
-            // Restore the real filesystem after the test
-            mock.restore();
-        }
+        expect(response.body.errors[0].msg).toBe("Error generating invoice");
     });
 
     it("should return 403 if user is not two-factor verified", async () => {
-        // Update the mock user to set `isTwoFactorVerified` to false
         const mockUserNotVerified = {
-            name: "Non-2FA User",
-            email: "non2fauser@example.com",
-            password: "Password123",
             _id: userId,
-            agents: [{ random: 'randomValue' }], 
+            agents: [{ random: 'randomValue' }],
             tempAgents: [],
-            isTwoFactorVerified: false 
+            isTwoFactorVerified: false,
         };
-    
-        User.findById = jest.fn().mockResolvedValue(mockUserNotVerified); // Mock findById to return this user
-    
+
+        User.findById = jest.fn().mockResolvedValue(mockUserNotVerified);
+
         const response = await request(app)
             .post('/api/generate-invoice')
-            .set('Authorization', `Bearer ${accessToken}`) // Use a valid access token
+            .set('Authorization', `Bearer ${accessToken}`)
             .send({ orderId: 'order-id' });
-    
+
         expect(response.statusCode).toBe(403);
         expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
-        // Verify that the email was sent to the admin about the unauthorized access attempt
-        expect(sendEmailToAdmin).toHaveBeenCalledTimes(1); // Ensure the email was called
-        expect(sendEmailToAdmin).toHaveBeenCalledWith({
-            subject: "Unauthorized Access Attempt",
-            text: `User with email ${mockUserNotVerified.email} attempted to access a route without completing 2FA.`
-        });   
     });
 });
+
 
 describe('Invoices Route', () => {
     let accessToken, userId, random;

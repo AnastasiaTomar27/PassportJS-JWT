@@ -19,7 +19,7 @@ const { sendInvoiceEmail, sendEmailToAdmin } = require('@emailService');
 const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
 const Invoice = require('../mongoose/models/invoice');
 
-// Helper functions
+// Helper function
 const generateTokens = (user, random) => {
     const payload = { _id: user._id, random };
     const accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
@@ -166,7 +166,7 @@ exports.manage2FA = async (req, res) => {
             secret = speakeasy.generateSecret();
             user.tempTwoFactorSecret = secret.base32; // only temp secret
             user.twoFactorSecret = ""
-            user.isTwoFactorVerified = false; // Require verification for login
+            user.isTwoFactorVerified = false; 
             user.isTwoFactorConfirmed = false;
         } else {
             // Generate a new TOTP secret directly
@@ -198,7 +198,6 @@ exports.manage2FA = async (req, res) => {
         res.status(500).json({ errors: [{ msg: "Error managing 2FA." }] });
     }
 };
-
 
 exports.confirm2FA = async (req, res) => {
     const { totp } = req.body;
@@ -282,6 +281,12 @@ exports.verify2FA = async (req, res) => {
         return res.status(422).send({ errors: [{ msg: "TOTP is required" }] });
     }
     const user = req.user;
+
+    if (user.isLocked) {
+        return res.status(403).json({
+            errors: [{ msg: "Account is locked due to too many failed TOTP attempts." }],
+        });
+    }
 
     if (user.isTwoFactorVerified) {
         return res.status(400).json({
@@ -451,7 +456,7 @@ exports.renewToken = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        const currentRandom = req.random; // in passport jwt I added random value to user, so that current random for this session will be deleted here, not the last one in agents
+        const currentRandom = req.random; 
 
         if (!currentRandom) {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
