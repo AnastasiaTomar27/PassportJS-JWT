@@ -22,6 +22,13 @@ const UserSchema = new mongoose.Schema({
     twoFactorSecret: {
         type: String
     },
+    tempTwoFactorSecret: {
+        type: String
+    },
+    isTwoFactorConfirmed: { // to track 2FA status
+        type: Boolean,
+        default: false // Default is false, meaning 2FA is not verified yet
+    },
     isTwoFactorVerified: { // to track 2FA status
         type: Boolean,
         default: false // Default is false, meaning 2FA is not verified yet
@@ -35,19 +42,16 @@ const UserSchema = new mongoose.Schema({
         type: Array,
         default: [], 
     },
-    tempAgents: {
-        type: Array,
-        default: [] 
-    },
-    order: [{
+    orders: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Order'
     }],
     deletedAt: {
         type: Date,
         default: null
-    }
-    
+    },
+    failedTOTPAttempts: { type: Number, default: 0 },
+    isLocked: { type: Boolean, default: false }
 },
 {
     timestamps: true

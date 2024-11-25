@@ -1,58 +1,81 @@
-const PDFDocument = require('pdfkit');
-const fs = require('fs');
+const puppeteer = require('puppeteer');
+// const fs = require('fs');
 const path = require('path');
-const invoicesDir = path.join(__dirname, 'invoices'); // __dirname means the path to service folder
+const crypto = require('crypto');
 
-function buildPDF(order) {
+const invoicesDir = path.join(__dirname, 'invoices'); // Directory for storing PDFs
 
-    // Promise gives the function an asynchronous structure
-    return new Promise((resolve, reject) => {
+// Generate PDF from HTML content
+async function buildPDFfromHTML(order) {
+    const filePath = path.join(invoicesDir, `invoice-${crypto.randomUUID()}.pdf`);
 
-        const filePath = path.join(invoicesDir, `invoice-${order._id}.pdf`);
+    // HTML content for the invoice
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Invoice</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .header { text-align: center; margin-bottom: 20px; }
+                .customer-info, .order-details { margin-bottom: 20px; }
+                .order-details table { width: 100%; border-collapse: collapse; }
+                .order-details th, .order-details td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                .totals { margin-top: 20px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Invoice</h1>
+            </div>
+            <div class="customer-info">
+                <p><strong>Customer Name:</strong> ${order.userId.name}</p>
+                <p><strong>Customer Email:</strong> ${order.userId.email}</p>
+                <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            </div>
+            <div class="order-details">
+                <h2>Order Details</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${order.products.map(product => `
+                            <tr>
+                                <td>${product.name}</td>
+                                <td>$${product.price.toFixed(2)}</td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="totals">
+                <p><strong>Total Price (Excl. VAT):</strong> $${order.products.reduce((sum, p) => sum + p.price, 0).toFixed(2)}</p>
+                <p><strong>VAT (20%):</strong> $${(order.products.reduce((sum, p) => sum + p.price, 0) * 0.2).toFixed(2)}</p>
+                <p><strong>Grand Total:</strong> $${(order.products.reduce((sum, p) => sum + p.price, 0) * 1.2).toFixed(2)}</p>
+            </div>
+        </body>
+        </html>
+    `;
 
-        const doc = new PDFDocument();
-        // creates a writable stream, that will be saved in filePath
-        const stream = fs.createWriteStream(filePath);
-        //  By piping doc into stream, everything you write to doc (like text, lines, images, etc.) is sent directly to stream, which writes the content to the file on disk.
-        doc.pipe(stream);
-
-        // Invoice Header
-        doc.fontSize(18).text('Invoice', { align: 'center' });
-        doc.moveDown();
-
-        // Customer Information
-        doc.fontSize(12)
-            .text(`Customer Name: ${order.userId.name}`)
-            .text(`Customer Email: ${order.userId.email}`)
-            .moveDown();
-
-        // Order Details
-        doc.text(`Date: ${new Date().toLocaleDateString()}`);
-        doc.text('Items:');
-        
-        let total = 0;
-        order.products.forEach(product => {
-            doc.text(`- ${product.name}: $${product.price}`);
-            total += product.price;
+    try {
+        const browser = await puppeteer.launch(); // Launch a headless browser
+        const page = await browser.newPage(); // Open a new page
+        await page.setContent(htmlContent); // Set the HTML content
+        await page.pdf({
+            path: filePath, // Save the PDF to this path
+            format: 'A4', // Standard paper size
+            printBackground: true, // Include CSS background colors
         });
-        
-        const vat = total * 0.2;
-        const grandTotal = total + vat;
-
-        doc.moveDown();
-        doc.text(`Total Price (Excl. VAT): $${total.toFixed(2)}`);
-        doc.text(`VAT (20%): $${vat.toFixed(2)}`);
-        doc.text(`Grand Total: $${grandTotal.toFixed(2)}`);
-        
-        doc.end(); // doc stops sending data
-
-        // listens for the finish event on the stream
-        stream.on('finish', () => {
-            resolve(filePath);
-        });        
-        stream.on('error', (error) => {
-            reject({ errors: [{ msg: "Error writing PDF file" }] });
-        });    }); 
+        await browser.close(); // Close the browser
+        return filePath;
+    } catch (error) {
+        throw new Error(`Error generating PDF: ${error.message}`);
+    }
 }
 
-module.exports = {buildPDF};
+module.exports = { buildPDFfromHTML };

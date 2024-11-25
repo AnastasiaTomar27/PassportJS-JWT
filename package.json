@@ -19,7 +19,7 @@
     "@server": "server.js",
     "@middlewareRestrict": "middleware/restrict",
     "@middlewareAuthenticateJWT": "middleware/authenticateJWT",
-    "@buildPDF": "service/pdf-service.js",
+    "@buildPDFfromHTML": "service/pdf-service.js",
     "@emailService": "service/emailService.js"
   },
   "_moduleDirectories": [
@@ -48,6 +48,7 @@
     "passport-local": "^1.0.0",
     "path": "^0.12.7",
     "pdfkit": "^0.15.1",
+    "puppeteer": "^23.9.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0"
   },

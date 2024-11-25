@@ -9,7 +9,8 @@ const User = require('../mongoose/models/user');
 
 const accessTokenOptions = {
     jwtFromRequest: ExtractJWT.fromAuthHeaderAsBearerToken(),
-    secretOrKey: keys
+    secretOrKey: keys,
+    passReqToCallback: true
 }
 
 module.exports = (passport) => {
@@ -44,7 +45,7 @@ module.exports = (passport) => {
 
 passport.use(
     'jwt',
-    new StrategyJWT(accessTokenOptions, async (jwt_payload, done) => {
+    new StrategyJWT(accessTokenOptions, async (req, jwt_payload, done) => {
         try {
             const user = await User.findById(jwt_payload._id);
 
@@ -54,18 +55,11 @@ passport.use(
 
             // Check if the `random` is in `agents` (regular session) or `tempAgents` (temporary session)
             const isAccessToken = user.agents.some(agent => agent.random === jwt_payload.random);
-            const isTempToken = user.tempAgents.some(tempAgent => tempAgent.random === jwt_payload.random);
 
             if (isAccessToken) {
                 // Attach the random identifier from `agents` and mark as a regular session
-                user.random = jwt_payload.random; // I need this current random value for delete route, to delete not the last random, but current rundom from agents
-                user.sessionType = 'access';  
-                return done(null, user);
-
-            } else if (isTempToken) {
-                // Attach the random identifier from `tempAgents` and mark as a temporary session
-                user.random = jwt_payload.random;
-                user.sessionType = 'temporary';  
+                req.random = jwt_payload.random; // I need this current random value for delete route, to delete not the last random, but current rundom from agents
+                //req.sessionType = 'access';  
                 return done(null, user);
             } else {
                 // If neither is matched, return an unauthorized response

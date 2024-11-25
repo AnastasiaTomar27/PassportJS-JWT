@@ -6,18 +6,53 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const keys = process.env.ACCESS_TOKEN_SECRET;
 const keys2 = process.env.REFRESH_TOKEN_SECRET;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const accessTokenExpiry = process.env.JWT_ACCESS_TOKEN_EXPIRY // 5min; 
 const Order = require('@modelOrder');
 const Product = require('@modelProduct');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { buildPDF } = require('@buildPDF');
+const { buildPDFfromHTML  } = require('@buildPDFfromHTML');
 const path = require('path');
 const fs = require('fs');
 const invoicesDir = path.join(__dirname, '..', 'service', 'invoices'); // __dirname means the path of users.js, '..' means go from the controllers folder
-const { sendInvoiceEmail } = require('@emailService');
+const { sendInvoiceEmail, sendEmailToAdmin } = require('@emailService');
+const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
+const Invoice = require('../mongoose/models/invoice');
 
+// Helper functions
+const generateTokens = (user, random) => {
+    const payload = { _id: user._id, random };
+    const accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+    const refreshToken = jwt.sign(payload, keys2);
+    return { accessToken, refreshToken };
+};
+
+const saveUser = async (user) => {
+    try {
+        await user.save();
+    } catch (error) {
+        throw new Error('Error saving user data.');
+    }
+};
+
+// const verifyTOTP = (user, totpCode, secret) => {
+//     return speakeasy.totp.verify({
+//         secret,
+//         encoding: "base32",
+//         token: totpCode,
+//     });
+// };
+
+// const generateQRCode = async (secret, user) => {
+//     const otpauthUrl = speakeasy.otpauthURL({
+//         secret: secret.base32,
+//         label: `${user.name}`,
+//         issuer: "www.anastasia.com",
+//         encoding: "base32",
+//     });
+
+//     return await QRCode.toDataURL(otpauthUrl);
+// };
 
 exports.userRegister = [
     [
@@ -28,18 +63,7 @@ exports.userRegister = [
             const passwordRegex = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])/;
             if (!passwordRegex.test(value)) {
                 throw new Error(); }
-            }).withMessage("User password configuration is invalid"),  
-    body("role").optional().isIn(['user', 'admin']).withMessage('Invalid role')
-    .custom(async (role, { req }) => {
-        // If the user selects 'admin', validate the password
-        if (role === 'admin') {
-            const { adminPassword } = req.body;
-            if (adminPassword !== ADMIN_PASSWORD) {
-                throw new Error('Incorrect admin password.');
-            }
-        }
-        return true;
-    }).withMessage('Role selection failed.') 
+            }).withMessage("User password configuration is invalid")
     ],
     async (request, response) => {
         const result = validationResult(request);
@@ -49,7 +73,11 @@ exports.userRegister = [
         }     
 
         const data = matchedData(request);
-        const newUser = new User(data);
+        const newUser = new User({
+            name: data.name,
+            email: data.email,
+            password: data.password
+        });
 
         await newUser.save()
             .then((user) => {
@@ -58,8 +86,7 @@ exports.userRegister = [
                     msg: "User created",
                     data: {
                         name: user.name,
-                        email: user.email,
-                        userId: user.id,
+                        email: user.email
                     }
                 });                    
             })
@@ -78,7 +105,7 @@ exports.login = [
     // Validation middlaware
     [
         body("email").notEmpty().isString().isEmail(),
-        body("password").notEmpty()
+        body("password").notEmpty().isString()
     ],
     // Checking validation results
     async (request, response, next) => {
@@ -98,102 +125,192 @@ exports.login = [
                 return response.status(401).send({ errors: [{ msg: "Access Denied" }] });
             }
 
-            const randomIdentifier = crypto.randomBytes(16).toString('hex');
-            
-            const random = randomIdentifier
+            if (user.isLocked) {
+                return response.status(403).send({ errors: [{ msg: "Account is locked due to too many failed TOTP attempts." }] });
+            }
 
-            user.tempAgents.push({ random }); // push means I allow user to log in from different devices
-
+            // // Attach user to request for isLocked middleware
+            // request.user = user;
+        
+            const random = crypto.randomBytes(16).toString('hex');
+            user.agents.push({ random }); // Allow login from different devices
             user.isTwoFactorVerified = false;
-
+    
             try {
                 await user.save();
             } catch (saveError) {
-                return response.status(500).send({ errors: [{msg: "Error saving user agents"}] });
-            } 
-
-            const payload = { _id: user._id, random };
-
-            let temporaryToken;
-            try {
-                temporaryToken = jwt.sign(payload, keys, { expiresIn: '5m' });
-            } catch (err) {
-                return response.status(500).send({ errors: [{msg: "Error generating temporary token"}] });
+                return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
             }
-
-            const needs2FASetup = !user.twoFactorSecret; //(falsy: user hasn't set up 2FA)
-
+    
+            const payload = { _id: user._id, random };
+    
+            let accessToken;
+            try {
+                accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+            } catch (err) {
+                console.error(err);
+                return response.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+            }
+    
+            const needs2FASetup = !user.twoFactorSecret;
+    
             return response.json({
                 msg: needs2FASetup ? "Please set up Two-Factor Authentication." : "TOTP required",
-                temporaryToken,  // for TOTP verification
-                data: { userId: user._id, needs2FASetup } 
+                data: { userId: user._id, needs2FASetup, accessToken: accessToken },
             });
-
         })(request, response, next);
     }
-    
 ];  
 
-// it saves a 2FA secret for the user (twoFactorSecret) and create QR code
-exports.setup2FA = async (req, res) => {
+exports.manage2FA = async (req, res) => {
+    const { totp } = req.body; // Current TOTP code for resetting 2FA if already set up
+
     try {
         const user = req.user;
+        let secret; // Declare secret in the outer scope
 
-        if (user.twoFactorSecret) {
-            return res.status(400).json({ errors: [{ msg: "2FA is already set up" }] });
+        // Check if the user already has a TOTP setup
+        if (user.twoFactorSecret && user.isTwoFactorConfirmed) { // Only users with confirmed 2FA can reset
+            // Verify the current TOTP to allow the reset
+            if (!totp) {
+                return res.status(422).json({ errors: [{ msg: "Current TOTP is required to reset 2FA." }] });
+            }
+
+            // Verify the current TOTP with the existing secret
+            const isVerified = speakeasy.totp.verify({
+                secret: user.twoFactorSecret,
+                encoding: "base32",
+                token: totp,
+            });
+
+            if (!isVerified) {
+                return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
+            }
+
+            // Clear old TOTP configurations
+            user.failedTOTPAttempts = 0;
+            // Generate a new TOTP secret directly
+            secret = speakeasy.generateSecret();
+            user.tempTwoFactorSecret = secret.base32; // only temp secret
+            user.twoFactorSecret = ""
+            user.isTwoFactorVerified = false; // Require verification for login
+            user.isTwoFactorConfirmed = false;
+        } else {
+            // Generate a new TOTP secret directly
+            secret = speakeasy.generateSecret();
+            user.twoFactorSecret = secret.base32; // Replace the old secret
         }
 
-        // This secret (secret.base32) is both stored on the server as twoFactorSecret and embedded in a QR code
-        var secret = speakeasy.generateSecret();
-        user.twoFactorSecret = secret.base32;
-
-        await user.save();
-        const url = speakeasy.otpauthURL({ //otpauthURL is a specially formatted URL that encodes the twoFactorSecret along with other information like the user's name and the issuer's name (my website).
-            //otpauth://totp/Test%20User?secret=SECRET123&issuer=www.anastasia.com
-            secret: secret.base32,
-            label: `${user.name}`,
-            issuer: "www.anastasia.com",
-            encoding: "base32"
-        });
-        const qrImageUrl = await QRCode.toDataURL(url);
-        res.status(200).json({
-            QRCode: qrImageUrl
-        })
-    } catch (error) {
-        res.status(500).json({ errors: [{ msg: "Error setting up 2FA" }] });
-    }
-}
-
-exports.reset2FA = async (req, res) => {
-    try {
-        const user = req.user;
-        
-        user.twoFactorSecret = null;
         await user.save();
 
-        // Generate a new 2FA secret and store it
-        const secret = speakeasy.generateSecret();
-        user.twoFactorSecret = secret.base32;
-        await user.save();
-
-        // Generate QR code URL for the new 2FA setup
+        // Generate a QR code for the new secret
         const otpauthUrl = speakeasy.otpauthURL({
             secret: secret.base32,
             label: `${user.name}`,
             issuer: "www.anastasia.com",
-            encoding: "base32"
+            encoding: "base32",
         });
 
         const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
-
-        // Send QR code back to client for scanning
-        res.status(200).json({
-            msg: "2FA has been reset successfully",
-            QRCode: qrCodeUrl
+        const message = user.tempTwoFactorSecret ? 
+            "Please scan the QR code in your authenticator app and confirm the TOTP code.":
+            "Please scan the QR code in your authenticator app to set it up and after that confirm it.";
+        
+            return res.status(200).json({
+            msg: message,
+            QRCode: qrCodeUrl,
         });
+    } catch (error) {
+        console.error("Error managing 2FA:", error);
+        res.status(500).json({ errors: [{ msg: "Error managing 2FA." }] });
+    }
+};
+
+
+exports.confirm2FA = async (req, res) => {
+    const { totp } = req.body;
+    const user = req.user;
+
+    if (!totp) {
+        return res.status(422).json({ errors: [{ msg: "TOTP is required to confirm 2FA setup." }] });
+    }
+
+    if (user.isTwoFactorConfirmed) {
+        return res.status(400).json({ errors: [{ msg: "TOTP setup is already confirmed." }] });
+    }
+
+    if (user.isLocked) {
+        return res.status(403).json({
+            errors: [{ msg: "Account is locked due to too many failed TOTP attempts." }]
+        });
+    }
+
+    try {
+        // If the user has a temporary secret (during setup phase)
+        if (user.tempTwoFactorSecret) {
+            const isVerified = speakeasy.totp.verify({
+                secret: user.tempTwoFactorSecret,
+                encoding: "base32",
+                token: totp,
+            });
+
+            if (!isVerified) {
+                return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
+            }
+
+            // After successful verification, assign a permanent secret
+            const permanentSecret = speakeasy.generateSecret();
+            user.twoFactorSecret = permanentSecret.base32; // Assign the permanent secret
+            user.tempTwoFactorSecret = ""; // Remove the temporary secret
+            user.isTwoFactorConfirmed = true; // Mark 2FA as confirmed
+            user.failedTOTPAttempts = 0; // Reset failed attempts
+            //user.isTwoFactorVerified = true; // Mark the user as verified
+
+            // Save the user data with the new permanent secret
+            await user.save();
+
+            // Generate a new QR code for the permanent secret
+            const otpauthUrl = speakeasy.otpauthURL({
+                secret: permanentSecret.base32,
+                label: `${user.name}`,
+                issuer: "www.anastasia.com",
+                encoding: "base32",
+            });
+
+            const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
+
+            return res.status(200).json({
+                msg: "Please scan again the QR code in your authenticator app to complete TOTP reset and verify the TOTP code.",
+                QRCode: qrCodeUrl, // Return the QR code for permanent setup
+            });
+        }
+
+        // If the user has a permanent secret, just verify it
+        if (user.twoFactorSecret) {
+            const isVerified = speakeasy.totp.verify({
+                secret: user.twoFactorSecret,
+                encoding: "base32",
+                token: totp,
+            });
+
+            if (!isVerified) {
+                return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
+            }
+
+            user.isTwoFactorConfirmed = true; // Mark as confirmed if valid
+            await user.save();
+
+            return res.status(200).json({
+                msg: "TOTP has been successfully confirmed.",
+            });
+        }
+
+        // If no 2FA is set up, return an error
+        return res.status(400).json({ errors: [{ msg: "2FA is not set up." }] });
 
     } catch (error) {
-        res.status(500).json({ errors: [{ msg: "Error resetting 2FA" }] });
+        console.error("Error confirming TOTP:", error);
+        res.status(500).json({ errors: [{ msg: "Error confirming TOTP" }] });
     }
 };
 
@@ -204,60 +321,82 @@ exports.verify2FA = async (req, res) => {
     if (!totp) {
         return res.status(422).send({ errors: [{ msg: "TOTP is required" }] });
     }
-
     const user = req.user;
-    if (!user.twoFactorSecret) {
-        return res.status(401).send({ message: "TOTP secret not found" });
+
+    if (user.isTwoFactorVerified) {
+        return res.status(400).json({
+            errors: [{ msg: "You have already verified your 2FA." }]
+        });
     }
 
-    const verified = speakeasy.totp.verify({
-        secret: user.twoFactorSecret,
-        encoding: "base32",
-        token: totp
-    });
+    // Case 1: User has not confirmed their 2FA setup
+    if (!user.isTwoFactorConfirmed) {
+        return res.status(400).json({
+            errors: [{ msg: "You have not confirmed your 2FA setup yet. Please complete the setup." }]
+        });
+    }
 
-    if (verified) {
-        const sessionRandom = crypto.randomBytes(16).toString('hex');
-        
-        const random = sessionRandom;
-        user.agents.push({ random }); // push means I allow user to log in from different devices
+    // Case 2: User has confirmed 2FA
+    try {
+        // Verify the TOTP code using the confirmed twoFactorSecret
+        const isVerified = speakeasy.totp.verify({
+            secret: user.twoFactorSecret,
+            encoding: "base32",
+            token: totp,
+        });
 
-        // Remove only the current `random` from tempAgents
-        const currentRandom = req.user.random; // This is set in the passport-jwt strategy
-        user.tempAgents = user.tempAgents.filter(tempAgent => tempAgent.random !== currentRandom);
+        if (!isVerified) {
+            // Increment the failed attempts counter
+            user.failedTOTPAttempts += 1;
 
+            // Lock the account if max attempts are reached
+            if (user.failedTOTPAttempts >= 10 && !user.isLocked) {
+                user.agents = []; // Clear all session identifiers
+                user.isLocked = true;
+                await saveUser(user);
+
+                await sendEmailToAdmin({
+                    subject: "Account Locked",
+                    text: `The account associated with email ${user.email} has been locked due to multiple failed TOTP attempts.`,
+                });
+
+                return res.status(403).json({
+                    errors: [{ msg: "Account is locked due to too many failed TOTP attempts." }],
+                });
+            }
+
+            await saveUser(user);
+            return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code" }] });
+        }
+
+        // Reset the failed attempts counter on success
+        user.failedTOTPAttempts = 0;
+        user.isLocked = false;
         user.isTwoFactorVerified = true;
 
-        try {
-            await user.save(); 
-        } catch (saveError) {
-            return res.status(500).send({ errors: [{ msg: "Error saving user agents" }] });
-        }
+        // Clean up old agent and add a new one
+        user.agents = user.agents.filter(agent => agent.random !== req.random);
+        const random = crypto.randomBytes(16).toString('hex');
+        user.agents.push({ random });
 
-        const payload = { _id: user._id, random};
+        await saveUser(user);
 
-        let accessToken, refreshToken;
-        try {
-            accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
-            refreshToken = jwt.sign(payload, keys2);
-        } catch (err) {
-            return res.status(500).send({ errors: [{ msg: "Error generating tokens" }] });
-        }
+        // Generate tokens
+        const { accessToken, refreshToken } = generateTokens(user, random);
 
         return res.status(200).json({
             status: true,
-            msg: "TOTP validated successfully: user logged in successfully",
+            msg: "TOTP verified successfully",
             accessToken,
             refreshToken,
             data: {
                 user: user.name,
                 email: user.email,
-                //_id: user._id
-            }
+            },
         });
-
-    } else {
-        res.status(400).json({ message: "TOTP is not correct or expired" });
+    } catch (error) {
+        console.error("Error verifying TOTP:", error);
+        res.status(500).json({ errors: [{ msg: "Internal server error." }] });
     }
 };
 
@@ -267,7 +406,6 @@ exports.userProfile = async (req, res) => {
             email: req.user.email,
             name: req.user.name
         }
-        
     })
 }
 
@@ -295,37 +433,44 @@ exports.renewToken = async (req, res) => {
                 return res.status(404).json({ errors: [{msg: "User not found"}] });
             }
 
-            const sessionRandom = crypto.randomBytes(16).toString('hex');
+            // Manually attach user to req
+            req.user = user;
 
-            const random = sessionRandom
-            user.agents.push({
-                random
-            })
-            try {
-                 // deleting old random 
-                user.agents = user.agents.filter(agent => agent.random !== decoded.random);
- 
-                await user.save(); 
+            // Check if the user has completed two-factor authentication
+            isTwoFactorVerified(req, res, async (middlewareError) => {
+                if (middlewareError) {
+                    // When called with an argument, e.g., next(middlewareError), Express interprets the argument as an error. It skips all remaining middleware and route handlers and invokes any error-handling middleware (defined with app.use((err, req, res, next) => {...})).
+                    return next(middlewareError); // it will send email alert to the admin and will show error:  "Access denied. Please complete Two-Factor Authentication to proceed."
+                }
 
-               
-            } catch (saveError) {
-                return response.status(500).json({ errors: [{msg: "Error saving user agents"}] });
-            } 
+                // Proceed with token renewal
+                const sessionRandom = crypto.randomBytes(16).toString('hex');
+                const random = sessionRandom;
+                user.agents.push({ random });
 
-            const payload = { _id: decoded._id, random: sessionRandom };
+                try {
+                    user.agents = user.agents.filter(agent => agent.random !== decoded.random);
+                    await user.save();
+                } catch (saveError) {
+                    return res.status(500).json({ errors: [{ msg: "Error saving user agents" }] });
+                }
 
-            let newAccessToken, newRefreshToken;
-            try {
-                newAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
-                newRefreshToken = jwt.sign(payload, keys2);
-            } catch (err) {
-                return response.status(500).json({ errors: [{msg: "Error generating tokens"}] });
-            }
-            return res.json({
-                status: true,
-                accessToken: newAccessToken,
-                refreshToken: newRefreshToken,
-                msg: 'Access token refreshed'
+                const payload = { _id: decoded._id, random: sessionRandom };
+
+                let newAccessToken, newRefreshToken;
+                try {
+                    newAccessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+                    newRefreshToken = jwt.sign(payload, keys2);
+                } catch (tokenError) {
+                    return res.status(500).json({ errors: [{ msg: "Error generating tokens" }] });
+                }
+
+                return res.json({
+                    status: true,
+                    accessToken: newAccessToken,
+                    refreshToken: newRefreshToken,
+                    msg: 'Access token refreshed',
+                });
             });
         });
 
@@ -336,7 +481,7 @@ exports.renewToken = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        const currentRandom = req.user.random; // in passport jwt I added random value to user, so that current random for this session will be deleted here, not the last one in agents
+        const currentRandom = req.random; // in passport jwt I added random value to user, so that current random for this session will be deleted here, not the last one in agents
 
         if (!currentRandom) {
             return res.status(401).json({ errors: [{ msg: "Unauthorized access." }] });
@@ -369,18 +514,14 @@ exports.terminateSession = async (req,res) => {
         if (!user) {
             return res.status(404).json({ errors: [{msg: 'User not found'}] });
         }
-    
-        //console.log("User agents before:", user.agents);
-        
-        // Admin removes only current random value from current session, but user not terminated from other devices
-        // const currentRandom = user.random; 
-        // user.agents = user.agents.filter(agent => agent.random !== currentRandom);
-
-
-        // admin deletes all random values from agents, to terminate all sessions on different devices
+            
+        // admin deletes all random values from agents, to terminate all sessions from all devices
         user.agents = [];
-        //console.log("User agents after:", user.agents);
 
+        // should i also to do this?:
+        // isTwoFactorConfirmed = false;
+        // isTwoFactorVerified = false;
+        // twoFactorSecret = "";
         await user.save(); 
 
         return res.json({ 
@@ -393,7 +534,7 @@ exports.terminateSession = async (req,res) => {
             
         });
       } catch (err) {
-        console.error("Error during terminateSession:", err);
+        //console.error("Error during terminateSession:", err);
 
         return res.status(500).json({ errors: [{msg: 'Error logging out user'}] });
       }
@@ -417,9 +558,18 @@ exports.seed = async (req, res) => {
         }
 
         const newProducts = await Product.create(products);
+
+        // Format the response data to exclude __v
+        const formattedProducts = newProducts.map(product => ({
+            productId: product._id,
+            name: product.name,
+            price: product.price,
+            createdAt: product.createdAt,
+        }));
+        
         return res.status(201).json({
             message: 'Products seeded successfully',
-            data: newProducts
+            data: formattedProducts
         });
     } catch (error) {
         console.error("Error seeding products:", error);
@@ -429,16 +579,18 @@ exports.seed = async (req, res) => {
 
 // user adds products to his order list
 exports.addProductToOrder = async (req, res) => {
-    if (req.user.isTemporary) {
-        return res.status(403).json({ errors: [{ msg: "Temporary token not permitted for this action" }] });
-    }
-    const { name } = req.body; 
+    const { productId  } = req.body; 
 
-    if (!name) {
-        return res.status(400).json({ errors: [{msg: "Product name is required"}] });
+    if (!productId ) {
+        return res.status(400).json({ errors: [{msg: "Product ID is required"}] });
     }
 
     try {
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ errors: [{msg: "Product not found"}] });
+        }
+
         let order = await Order.findOne({ userId: req.user._id }); // check if user already has order list
         if (!order) {
             order = new Order({ 
@@ -447,19 +599,14 @@ exports.addProductToOrder = async (req, res) => {
             });
         }
 
-        const product = await Product.findOne({ name: name });
-        if (!product) {
-            return res.status(404).json({ errors: [{msg: "Product not found"}] });
-        }
-
         order.products.push(product._id); // only aads product id
 
         await order.save();
 
         // add orders array to the user model
         const user = req.user;
-        if (!user.order.includes(order._id)) { // check that order is placed only once
-            user.order.push(order._id);
+        if (!user.orders.includes(order._id)) { // check that order is placed only once
+            user.orders.push(order._id);
             await user.save();
         }
 
@@ -481,7 +628,7 @@ exports.addProductToOrder = async (req, res) => {
             order: orderDetails 
         });
     } catch (error) {
-        console.error(error);
+        //console.error(error);
         return res.status(500).json({ errors: [{msg: "Error adding product to order"}] });
     }
 };
@@ -493,7 +640,7 @@ exports.checkMyOrder = async (req, res) => {
 
         const user = await User.findById(userId)
             .populate({
-                path: 'order', 
+                path: 'orders', 
                 populate: {
                     path: 'products', 
                     model: 'Product',
@@ -505,7 +652,7 @@ exports.checkMyOrder = async (req, res) => {
             data: {
                 name: user.name,
                 email: user.email,
-                order: user.order.map(order => ({
+                order: user.orders.map(order => ({
                     orderId: order._id,
                     createdAt: order.createdAt,
                     products: order.products.map(product => ({
@@ -516,7 +663,7 @@ exports.checkMyOrder = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error(error);
+        //console.error(error);
         return res.status(500).json({ errors: [{msg: "Error checking order"}] });
     }
 };
@@ -529,19 +676,18 @@ exports.fetchUserByAdmin = async (req, res) => {
             return res.status(400).json({ errors: [{msg: "Invalid user ID format" }] });
         }
 
-        const user = await User.findById(userId);
-
-        if (!user) {
-            return res.status(404).json({ errors: [{ msg: 'User not found' }] });
-        } 
-        
-        await user.populate({
-                path: 'order',
+        const user = await User.findById(userId)
+            .populate({
+                path: 'orders',
                 populate: {
                     path: 'products',
                     model: 'Product',
                 }
             });
+
+        if (!user) {
+            return res.status(404).json({ errors: [{ msg: 'User not found' }] });
+        } 
 
         return res.status(200).json({
             data: {
@@ -549,17 +695,16 @@ exports.fetchUserByAdmin = async (req, res) => {
                 userId: user._id,
                 name: user.name,
                 email: user.email,
-                order: user.order
+                order: user.orders
             }
         });
     } catch (error) {
-        console.error(error);
+        //console.error(error);
         return res.status(500).json({ errors: [{msg: 'Error fetching user with orders'}] });
     }
 };
 
 exports.generateInvoice = async (req, res) => {
-    
     const { orderId } = req.body;
 
     if (!orderId) {
@@ -568,31 +713,46 @@ exports.generateInvoice = async (req, res) => {
 
     try {
         const order = await Order.findOne({ _id: orderId, userId: req.user._id })
-            .populate('products') 
+            .populate('products')
             .populate({
-                path: 'userId',      
-                select: 'name email' 
+                path: 'userId',
+                select: 'name email',
             });
 
         if (!order) {
             return res.status(404).json({ errors: [{ msg: "Order not found or access denied" }] });
         }
 
-        // buildPDF will pass the path that i created in pdf-service file: resolve(filePath);
-        const filePath = await buildPDF(order);
-        // generate a publicly accessible URL that clients (e.g., the user’s browser or my frontend application) can use to download or view the file.
-        const fileUrl = `/api/invoices/${path.basename(filePath)}`; 
+        // Check if an invoice already exists for this order
+        const existingInvoice = await Invoice.findOne({ orderId, userId: req.user._id });
+        if (existingInvoice) {
+            return res.status(200).json({
+                message: 'Invoice already exists',
+                pdfUrl: `/api/invoices/${path.basename(existingInvoice.filePath)}`,
+            });
+        }
 
-        // Pass the filePath directly to sendInvoiceEmail
-        await sendInvoiceEmail(order, order.userId.email, filePath);
+        // Generate PDF from HTML
+        const pdfPath = await buildPDFfromHTML(order);
 
-        return res.status(200).json({ message: 'Invoice generated and sent successfully', fileUrl });
+        // Save the invoice metadata in the database
+        const invoice = new Invoice({
+            userId: req.user._id,
+            orderId: order._id,
+            filePath: pdfPath,
+        });
+        await invoice.save();
+
+        // Optionally send the invoice via email
+        await sendInvoiceEmail(order, order.userId.email, pdfPath);
+
+        return res.status(201).json({
+            message: 'Invoice generated successfully',
+            pdfUrl: `/api/invoices/${path.basename(pdfPath)}`,
+        });
     } catch (error) {
-        console.error('Error generating invoice in catch block:', error.message);
-
-        // If an error occurs in the PDF generation process
         return res.status(500).json({
-            errors: [{ message: "Error generating PDF", details: error.message }]
+            errors: [{ msg: "Error generating invoice" }],
         });
     }
 };
@@ -600,22 +760,29 @@ exports.generateInvoice = async (req, res) => {
 // in browser I use ModHeader to put access token and check routes 
 exports.invoices = async (req, res) => {
     const { filename } = req.params;
-    const download = req.query.download === 'true'; // I need to add ?download=true for downloading: http://localhost:3000/api/invoices/invoice-672fb86119bba8fc4780c8ec.pdf?download=true
-    
-    try {
-        // Define the path to your invoices directory and file location
-        const filePath = path.join(invoicesDir, filename);
+    const download = req.query.download === 'true'; // I need to add ?download=true to download file
 
-        // Check if the file exists
+    try {
+        // Check if the invoice exists in the database
+        const invoice = await Invoice.findOne({
+            filePath: path.join(invoicesDir, filename),
+            userId: req.user._id, // Ensure the invoice belongs to the authenticated user
+        });
+
+        if (!invoice) {
+            return res.status(404).json({ errors: [{ msg: 'Invoice not found or access denied' }] });
+        }
+
+        // Check if the file exists on the server
+        const filePath = invoice.filePath;
         if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ errors: [{ msg: 'Invoice not found' }] });
+            return res.status(404).json({ errors: [{ msg: 'Invoice file not found on server' }] });
         }
 
         if (download) {
             // Send the file as an attachment (download)
             return res.download(filePath, filename, (err) => {
                 if (err) {
-                    console.error('File download error:', err);
                     return res.status(500).json({ errors: [{ msg: 'Could not download the file.' }] });
                 }
             });
@@ -623,13 +790,11 @@ exports.invoices = async (req, res) => {
             // Send the file inline (to view in the browser)
             res.sendFile(filePath, (err) => {
                 if (err) {
-                    console.error('File view error:', err);
                     return res.status(500).json({ errors: [{ msg: 'Could not view the file.' }] });
                 }
             });
         }
     } catch (error) {
-        console.error('Error handling file request:', error);
         return res.status(500).json({ errors: [{ msg: 'Internal server error.' }] });
     }
 };

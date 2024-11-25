@@ -7,12 +7,13 @@ const Product = require('@modelProduct');
 const Order = require('@modelOrder');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const { buildPDF } = require('@buildPDF'); 
 const { sendInvoiceEmail } = require('@emailService'); 
 const fs = require('fs');
 const path = require('path');
 const mock = require('mock-fs');
+const { sendEmailToAdmin } = require('@emailService');
+const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
 
 
 jest.mock('@buildPDF', () => ({
@@ -21,6 +22,7 @@ jest.mock('@buildPDF', () => ({
   
 jest.mock('@emailService', () => ({
     sendInvoiceEmail: jest.fn(), 
+    sendEmailToAdmin: jest.fn(),
 }));
 
 // Jest mocks the entire speakeasy. These mocked speakeasy functions don’t perform real 2FA operations; they just provide hardcoded responses, allowing us to verify how our route behaves based on expected input
@@ -45,6 +47,7 @@ jest.mock('qrcode', () => ({
 
 afterEach(async () => {
     await User.deleteMany();
+
 });
 
 afterAll(async () => {
@@ -54,7 +57,7 @@ afterAll(async () => {
 
 describe("User Routes", () => {
     describe("POST /api/signup", () => {
-        it("should create a new user and return 201, ROLE: USER", async () => {
+        it("should create a new user and return 201", async () => {
             const response = await request(app)
                 .post('/api/signup')
                 .send({
@@ -66,26 +69,6 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(201);
             expect(response.body.success).toBe(true);
             expect(response.body.data).toHaveProperty('email', 'testuser@example.com');
-        });
-        // it will not check if its really an admin, should I send role in response or just change the logic in register route? 
-        it("should create a new user and return 201, ROLE: ADMIN", async () => {
-            const response = await request(app)
-                .post('/api/signup')
-                .send({
-                    name: "Admin",
-                    email: "admin@example.com",
-                    password: "Password123",
-                    role: "admin",
-                    adminPassword: ADMIN_PASSWORD
-                });
-
-            expect(response.statusCode).toBe(201);
-            expect(response.body.success).toBe(true);
-            expect(response.body.data).toHaveProperty('email', 'admin@example.com');
-        
-            const adminUser = await User.findOne({ email: "admin@example.com" });
-
-            expect(adminUser.role).toBe("admin");
         });
 
         it("should return 400 if the email already exists", async () => {
@@ -622,6 +605,26 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(401);
             expect(response.body.errors[0].msg).toBe("Unauthorized access");
         });
+        it("should return 403 when user has not completed 2FA and tries to access profile", async () => {
+            user.isTwoFactorVerified = false;
+            await user.save();
+            // Test case where user has isTwoFactorVerified = false
+            const response = await request(app)
+                .get('/api/profile')
+                .set('Authorization', `Bearer ${accessToken}`);  // Attach valid JWT token
+    
+            // Ensure the status code is 403 (Forbidden)
+            expect(response.statusCode).toBe(403);
+            
+            // Ensure the correct error message is returned
+            expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+    
+            // Ensure the email sending function is called
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: "User with email profile@example.com attempted to access a route without completing 2FA."
+            });
+        });
     });
     describe("POST /api/renewAccessToken", () => {
         const keys = process.env.ACCESS_TOKEN_SECRET;
@@ -695,6 +698,23 @@ describe("User Routes", () => {
             expect(response.statusCode).toBe(401);
             expect(response.body.errors[0].msg).toBe("Invalid or expired refresh token");
         });
+        it("should return 403 if user has not completed 2FA", async () => {
+            // Modify the user to simulate not having 2FA verified
+            user.isTwoFactorVerified = false;
+            await user.save();
+        
+            const response = await request(app)
+                .post('/api/renewAccessToken')
+                .send({ refreshToken });
+        
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+            // Ensure the email sending function is called
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: "User with email profile@example.com attempted to access a route without completing 2FA."
+            });
+        });
     });
     describe("POST /api/logout", () => {
         const keys = process.env.ACCESS_TOKEN_SECRET;
@@ -720,7 +740,7 @@ describe("User Routes", () => {
             accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
         });
     
-        it("should logout the user by deleting random value from agents array", async () => {
+        it("should logout the user if isTwoFactorVerified is true by deleting random value from agents array", async () => {
             const response = await request(app)
                 .post('/api/logout')
                 .set('Authorization', `Bearer ${accessToken}`) 
@@ -741,6 +761,29 @@ describe("User Routes", () => {
             expect(profileResponse.body.errors[0].msg).toBe("Unauthorized access");
         });
     
+        it("should return 403 if isTwoFactorVerified is false", async () => {
+            user.isTwoFactorVerified = false; // Modify the user
+            await user.save();
+    
+            const response = await request(app)
+                .post('/api/logout')
+                .set('Authorization', `Bearer ${accessToken}`)
+    
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe(
+                "Access denied. Please complete Two-Factor Authentication to proceed."
+            );
+    
+            // Ensure the user's agents array is not cleared
+            const updatedUser = await User.findById(user._id);
+            expect(updatedUser.agents).toHaveLength(1);
+            // Ensure the email sending function is called
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: "User with email profile@example.com attempted to access a route without completing 2FA."
+            });
+        });
+
         it("should return 401 if no access token is provided", async () => {
             const response = await request(app)
                 .post('/api/logout')
@@ -826,6 +869,24 @@ describe("User Routes", () => {
 
                 expect(profileResponse.statusCode).toBe(401);
                 expect(profileResponse.body.errors[0].msg).toBe("Unauthorized access");
+            });
+            it("should return 403 if 2FA is not verified for the admin - in case admin access token was stolen", async () => {
+                // Set `isTwoFactorVerified` to false for admin
+                admin.isTwoFactorVerified = false;
+                await admin.save();
+    
+                const response = await request(app)
+                    .post('/api/admin/logout-user')
+                    .send({ userId: user._id })
+                    .set('Authorization', `Bearer ${adminAccessToken}`);
+    
+                expect(response.statusCode).toBe(403);
+                expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+                // Ensure the email sending function is called
+                expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: "User with email profile@example.com attempted to access a route without completing 2FA."
+            });
             });
             it("should return 401 if no access token is provided", async () => {
                 const response = await request(app)
@@ -1003,11 +1064,12 @@ describe("Product and Order Routes with Authentication", () => {
         let product;
 
         beforeEach(async () => {
+            sendEmailToAdmin.mockClear();
             product = new Product({ name: "Apples", price: 30 });
             await product.save();
         });
 
-        it("should allow a user to add a product to their order", async () => {
+        it("should allow a user to add a product to their order if 2FA is true", async () => {
             const response = await request(app)
                 .post('/api/addProductToOrder')
                 .send({ name: "Apples" })
@@ -1043,11 +1105,40 @@ describe("Product and Order Routes with Authentication", () => {
             expect(response.statusCode).toBe(404);
             expect(response.body.errors[0].msg).toBe("Product not found");
         });
+        it("should prevent access if the user has not completed 2FA", async () => {
+            user.isTwoFactorVerified = false;
+            await user.save();
+            const response = await request(app)
+                .post('/api/addProductToOrder')
+                .send({ name: "Apples" })
+                .set('Authorization', `Bearer ${userAccessToken}`);
+    
+            // Check that access is denied if 2FA is not completed
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+    
+            // Check that the email to admin was sent
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: `User with email ${user.email} attempted to access a route without completing 2FA.`
+            });
+    
+            // Check that the email function was called exactly once
+            expect(sendEmailToAdmin).toHaveBeenCalledTimes(1);
+        });
     });
 
     // CHECK MY ORDER ROUTE
     describe("GET /api/checkMyOrder", () => {
-        it("should allow a user to check their order", async () => {
+        let product;
+
+        beforeEach(async () => {
+            sendEmailToAdmin.mockClear();
+            product = new Product({ name: "Apples", price: 30 });
+            await product.save();
+        });
+
+        it("should allow a user to check their order when 2FA is verified", async () => {
             await request(app)
                 .post('/api/addProductToOrder')
                 .send({ name: "Apples" })
@@ -1070,6 +1161,27 @@ describe("Product and Order Routes with Authentication", () => {
             expect(applesProduct).toHaveProperty("price", 1.5); 
         });
 
+        it("should prevent access and send email to admin if 2FA is not verified", async () => {
+            // Set the user to NOT have 2FA verified
+            user.isTwoFactorVerified = false;
+            await user.save();
+    
+            const response = await request(app)
+                .get('/api/checkMyOrder')
+                .set('Authorization', `Bearer ${userAccessToken}`);
+    
+            // Check that the response is 403 (Forbidden) due to lack of 2FA verification
+            expect(response.statusCode).toBe(403);
+            expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+    
+            // Verify that the email was sent to the admin about the unauthorized access attempt
+            expect(sendEmailToAdmin).toHaveBeenCalledTimes(1); // Ensure the email was called
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: `User with email ${user.email} attempted to access a route without completing 2FA.`
+            });
+        });
+
         it("should prevent access without authentication", async () => {
             const response = await request(app).get('/api/checkMyOrder');
 
@@ -1080,7 +1192,7 @@ describe("Product and Order Routes with Authentication", () => {
 
     // FETCH USER BY ADMIN ROUTE
     describe("GET /api/admin/fetchUser", () => {
-        it("should allow an admin to fetch a user's details and orders", async () => {
+        it("should allow an admin to fetch a user's details and orders when 2FA hascompleted", async () => {
             const response = await request(app)
                 .get('/api/admin/fetchUser')
                 .send({ userId: user._id })
@@ -1089,6 +1201,26 @@ describe("Product and Order Routes with Authentication", () => {
             expect(response.statusCode).toBe(200);
             expect(response.body.data).toHaveProperty("name", user.name);
             expect(response.body.data).toHaveProperty("email", user.email);
+        });
+        it("should not allow an admin to fetch a user's details if user has not completed 2FA", async () => {
+            // Simulate the scenario where the user has NOT completed 2FA
+            admin.isTwoFactorVerified = false;
+            await admin.save(); // Save the changes
+    
+            const response = await request(app)
+                .get('/api/admin/fetchUser')
+                .send({ userId: user._id })
+                .set('Authorization', `Bearer ${adminAccessToken}`);
+    
+            expect(response.statusCode).toBe(403); // Forbidden, because 2FA is not verified
+            expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+    
+            // Verify that the email was sent to the admin about the unauthorized access attempt
+            expect(sendEmailToAdmin).toHaveBeenCalledTimes(1); // Ensure the email was called
+            expect(sendEmailToAdmin).toHaveBeenCalledWith({
+                subject: "Unauthorized Access Attempt",
+                text: `User with email ${admin.email} attempted to access a route without completing 2FA.`
+            });        
         });
 
         it("should prevent a regular user from accessing admin endpoint", async () => {
@@ -1144,7 +1276,8 @@ describe("POST /api/generate-invoice", () => {
         const mockUser = {
             _id: userId,
             agents: [{ random: 'randomValue' }],  // Mock the user having an agent with a matching random
-            tempAgents: [{ random: 'tempRandomValue' }]  // You can adjust this if necessary
+            tempAgents: [{ random: 'tempRandomValue' }],  // You can adjust this if necessary
+            isTwoFactorVerified: true
         };
 
         
@@ -1157,7 +1290,7 @@ describe("POST /api/generate-invoice", () => {
         jest.clearAllMocks();
     });
 
-    it("should generate an invoice successfully", async () => {
+    it("should generate an invoice successfully if user is two factor verified", async () => {
         Order.findOne = jest.fn().mockReturnValue({
             populate: jest.fn().mockReturnValue({
               populate: jest.fn().mockResolvedValueOnce(mockOrder),
@@ -1229,8 +1362,6 @@ describe("POST /api/generate-invoice", () => {
 
 
     it("should generate a PDF in a temporary directory", async () => {
-        
-        
         // Setup the absolute path for file system checks
         const tempDir = path.join(__dirname, '..', 'temp');
         const pdfFileName = 'invoice-672fb86119bba8fc4780c8ec.pdf';
@@ -1272,6 +1403,35 @@ describe("POST /api/generate-invoice", () => {
             mock.restore();
         }
     });
+
+    it("should return 403 if user is not two-factor verified", async () => {
+        // Update the mock user to set `isTwoFactorVerified` to false
+        const mockUserNotVerified = {
+            name: "Non-2FA User",
+            email: "non2fauser@example.com",
+            password: "Password123",
+            _id: userId,
+            agents: [{ random: 'randomValue' }], 
+            tempAgents: [],
+            isTwoFactorVerified: false 
+        };
+    
+        User.findById = jest.fn().mockResolvedValue(mockUserNotVerified); // Mock findById to return this user
+    
+        const response = await request(app)
+            .post('/api/generate-invoice')
+            .set('Authorization', `Bearer ${accessToken}`) // Use a valid access token
+            .send({ orderId: 'order-id' });
+    
+        expect(response.statusCode).toBe(403);
+        expect(response.body.errors[0].msg).toBe("Access denied. Please complete Two-Factor Authentication to proceed.");
+        // Verify that the email was sent to the admin about the unauthorized access attempt
+        expect(sendEmailToAdmin).toHaveBeenCalledTimes(1); // Ensure the email was called
+        expect(sendEmailToAdmin).toHaveBeenCalledWith({
+            subject: "Unauthorized Access Attempt",
+            text: `User with email ${mockUserNotVerified.email} attempted to access a route without completing 2FA.`
+        });   
+    });
 });
 
 describe('Invoices Route', () => {
@@ -1289,7 +1449,8 @@ describe('Invoices Route', () => {
         const mockUser = {
             _id: userId,
             agents: [{ random: 'randomValue' }],  // Mock the user having an agent with a matching random
-            tempAgents: [{ random: 'tempRandomValue' }]  // Adjust this if necessary
+            tempAgents: [{ random: 'tempRandomValue' }],  // Adjust this if necessary
+            isTwoFactorVerified: true
         };
 
         // Mock User.findById to return the mock user
@@ -1309,6 +1470,7 @@ describe('Invoices Route', () => {
     });
 
     afterEach(() => {
+        jest.clearAllMocks();
         mock.restore(); // Restore the real filesystem after each test
     });
 
@@ -1364,5 +1526,33 @@ describe('Invoices Route', () => {
         expect(response.headers['content-disposition']).toContain('attachment');  // Download should trigger attachment
         expect(response.headers['content-disposition']).toContain(filename);  // Should contain the filename for the download
     });
+    it('should return 403 if user is not two-factor verified', async () => {
+        // Mock the user to have isTwoFactorVerified set to false
+        const mockUser = {
+            _id: userId,
+            agents: [{ random: 'randomValue' }],
+            tempAgents: [{ random: 'tempRandomValue' }],
+            isTwoFactorVerified: false
+        };
     
+        // Mock User.findById to return the modified mock user
+        User.findById = jest.fn().mockResolvedValue(mockUser);
+    
+        const filename = 'invoice-672fb86119bba8fc4780c8ec.pdf';
+    
+        const response = await request(app)
+            .get(`/api/invoices/${filename}`)
+            .set('Authorization', `Bearer ${accessToken}`); 
+    
+        expect(response.status).toBe(403);
+        expect(response.body.errors[0].msg).toBe(
+            'Access denied. Please complete Two-Factor Authentication to proceed.'
+        );
+        // Verify that the email was sent to the admin about the unauthorized access attempt
+        expect(sendEmailToAdmin).toHaveBeenCalledTimes(1); // Ensure the email was called
+        expect(sendEmailToAdmin).toHaveBeenCalledWith({
+            subject: "Unauthorized Access Attempt",
+            text: `User with email ${mockUser.email} attempted to access a route without completing 2FA.`
+        }); 
+    });
 });
