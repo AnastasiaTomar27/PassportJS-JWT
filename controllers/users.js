@@ -27,33 +27,6 @@ const generateTokens = (user, random) => {
     return { accessToken, refreshToken };
 };
 
-const saveUser = async (user) => {
-    try {
-        await user.save();
-    } catch (error) {
-        throw new Error('Error saving user data.');
-    }
-};
-
-// const verifyTOTP = (user, totpCode, secret) => {
-//     return speakeasy.totp.verify({
-//         secret,
-//         encoding: "base32",
-//         token: totpCode,
-//     });
-// };
-
-// const generateQRCode = async (secret, user) => {
-//     const otpauthUrl = speakeasy.otpauthURL({
-//         secret: secret.base32,
-//         label: `${user.name}`,
-//         issuer: "www.anastasia.com",
-//         encoding: "base32",
-//     });
-
-//     return await QRCode.toDataURL(otpauthUrl);
-// };
-
 exports.userRegister = [
     [
     body("name").notEmpty().isLength({ max: 20 }).withMessage('Name must be maximum of 20 characters.').isString(),
@@ -239,14 +212,7 @@ exports.confirm2FA = async (req, res) => {
         return res.status(400).json({ errors: [{ msg: "TOTP setup is already confirmed." }] });
     }
 
-    if (user.isLocked) {
-        return res.status(403).json({
-            errors: [{ msg: "Account is locked due to too many failed TOTP attempts." }]
-        });
-    }
-
     try {
-        // If the user has a temporary secret (during setup phase)
         if (user.tempTwoFactorSecret) {
             const isVerified = speakeasy.totp.verify({
                 secret: user.tempTwoFactorSecret,
@@ -258,35 +224,26 @@ exports.confirm2FA = async (req, res) => {
                 return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
             }
 
-            // After successful verification, assign a permanent secret
             const permanentSecret = speakeasy.generateSecret();
-            user.twoFactorSecret = permanentSecret.base32; // Assign the permanent secret
-            user.tempTwoFactorSecret = ""; // Remove the temporary secret
-            user.isTwoFactorConfirmed = true; // Mark 2FA as confirmed
-            user.failedTOTPAttempts = 0; // Reset failed attempts
-            //user.isTwoFactorVerified = true; // Mark the user as verified
+            user.twoFactorSecret = permanentSecret.base32;
+            user.tempTwoFactorSecret = "";
+            user.isTwoFactorConfirmed = true;
+            user.failedTOTPAttempts = 0;
 
-            // Save the user data with the new permanent secret
-            await user.save();
+            try {
+                await user.save();
+            } catch (saveError) {
+                console.error("Error saving user during TOTP confirmation:", saveError);
+                return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+            }
 
-            // Generate a new QR code for the permanent secret
-            const otpauthUrl = speakeasy.otpauthURL({
-                secret: permanentSecret.base32,
-                label: `${user.name}`,
-                issuer: "www.anastasia.com",
-                encoding: "base32",
-            });
-
-            const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
+            const qrCodeUrl = await generateQRCode(permanentSecret, user);
 
             return res.status(200).json({
                 msg: "Please scan again the QR code in your authenticator app to complete TOTP reset and verify the TOTP code.",
-                QRCode: qrCodeUrl, // Return the QR code for permanent setup
+                QRCode: qrCodeUrl,
             });
-        }
-
-        // If the user has a permanent secret, just verify it
-        if (user.twoFactorSecret) {
+        } else if (user.twoFactorSecret) {
             const isVerified = speakeasy.totp.verify({
                 secret: user.twoFactorSecret,
                 encoding: "base32",
@@ -297,23 +254,26 @@ exports.confirm2FA = async (req, res) => {
                 return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
             }
 
-            user.isTwoFactorConfirmed = true; // Mark as confirmed if valid
-            await user.save();
+            user.isTwoFactorConfirmed = true;
+
+            try {
+                await user.save();
+            } catch (saveError) {
+                console.error("Error saving user during TOTP confirmation:", saveError);
+                return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+            }
 
             return res.status(200).json({
                 msg: "TOTP has been successfully confirmed.",
             });
+        } else {
+            return res.status(400).json({ errors: [{ msg: "2FA is not set up." }] });
         }
-
-        // If no 2FA is set up, return an error
-        return res.status(400).json({ errors: [{ msg: "2FA is not set up." }] });
-
     } catch (error) {
         console.error("Error confirming TOTP:", error);
-        res.status(500).json({ errors: [{ msg: "Error confirming TOTP" }] });
+        return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
     }
 };
-
 
 exports.verify2FA = async (req, res) => {
     const { totp } = req.body;
@@ -329,16 +289,13 @@ exports.verify2FA = async (req, res) => {
         });
     }
 
-    // Case 1: User has not confirmed their 2FA setup
     if (!user.isTwoFactorConfirmed) {
         return res.status(400).json({
             errors: [{ msg: "You have not confirmed your 2FA setup yet. Please complete the setup." }]
         });
     }
 
-    // Case 2: User has confirmed 2FA
     try {
-        // Verify the TOTP code using the confirmed twoFactorSecret
         const isVerified = speakeasy.totp.verify({
             secret: user.twoFactorSecret,
             encoding: "base32",
@@ -346,14 +303,18 @@ exports.verify2FA = async (req, res) => {
         });
 
         if (!isVerified) {
-            // Increment the failed attempts counter
             user.failedTOTPAttempts += 1;
 
-            // Lock the account if max attempts are reached
             if (user.failedTOTPAttempts >= 10 && !user.isLocked) {
                 user.agents = []; // Clear all session identifiers
                 user.isLocked = true;
-                await saveUser(user);
+
+                try {
+                    await user.save();
+                } catch (saveError) {
+                    console.error("Error saving user during account lock:", saveError);
+                    return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+                }
 
                 await sendEmailToAdmin({
                     subject: "Account Locked",
@@ -365,23 +326,32 @@ exports.verify2FA = async (req, res) => {
                 });
             }
 
-            await saveUser(user);
+            try {
+                await user.save();
+            } catch (saveError) {
+                console.error("Error saving user during failed TOTP attempt:", saveError);
+                return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+            }
+
             return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code" }] });
         }
 
-        // Reset the failed attempts counter on success
         user.failedTOTPAttempts = 0;
         user.isLocked = false;
         user.isTwoFactorVerified = true;
 
-        // Clean up old agent and add a new one
+        // Clean up old agents and add a new one
         user.agents = user.agents.filter(agent => agent.random !== req.random);
         const random = crypto.randomBytes(16).toString('hex');
         user.agents.push({ random });
 
-        await saveUser(user);
+        try {
+            await user.save();
+        } catch (saveError) {
+            console.error("Error saving user during TOTP verification:", saveError);
+            return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+        }
 
-        // Generate tokens
         const { accessToken, refreshToken } = generateTokens(user, random);
 
         return res.status(200).json({
@@ -396,7 +366,7 @@ exports.verify2FA = async (req, res) => {
         });
     } catch (error) {
         console.error("Error verifying TOTP:", error);
-        res.status(500).json({ errors: [{ msg: "Internal server error." }] });
+        return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
     }
 };
 
