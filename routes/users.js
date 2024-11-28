@@ -4,11 +4,13 @@ const {userRegister, login, confirm2FA, manage2FA, verify2FA, userProfile, renew
 const {restrict} = require('@middlewareRestrict');
 const authenticateJWT = require('@middlewareAuthenticateJWT');
 const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
+const { Secret_Confirmed_Verified } = require('../middleware/Secret_Confirmed_Verified'); 
+const { temp2FAconfirmed } = require('../middleware/temp2FAconfirmed');
 
 router.post("/signup", userRegister);
 router.post('/login', login);
-router.post('/confirm2FA', authenticateJWT, confirm2FA);
-router.post('/manage2FA', authenticateJWT,  manage2FA);
+router.post('/manage2FA', authenticateJWT,  Secret_Confirmed_Verified, manage2FA);
+router.post('/confirm2FA', authenticateJWT, temp2FAconfirmed, confirm2FA);
 router.post('/verify2FA', authenticateJWT, verify2FA);
 router.get('/profile', authenticateJWT, isTwoFactorVerified, userProfile);
 router.post('/renewAccessToken', renewToken);

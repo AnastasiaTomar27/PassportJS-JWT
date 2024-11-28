@@ -136,14 +136,12 @@ exports.login = [
 ];  
 
 exports.manage2FA = async (req, res) => {
-    const { totp } = req.body; // Current TOTP code for resetting 2FA if already set up
-
+    const { totp } = req.body; // need totp only if user already set it up, otherwise no
+    const user = req.user;
     try {
-        const user = req.user;
-        let secret; // Declare secret in the outer scope
+        let secret; 
 
-        // Check if the user already has a TOTP setup
-        if (user.twoFactorSecret && user.isTwoFactorConfirmed) { // Only users with confirmed 2FA can reset
+        if (user.twoFactorSecret && user.isTwoFactorConfirmed) { // these are users which already have set up TOTP
             // Verify the current TOTP to allow the reset
             if (!totp) {
                 return res.status(422).json({ errors: [{ msg: "Current TOTP is required to reset 2FA." }] });
@@ -161,22 +159,22 @@ exports.manage2FA = async (req, res) => {
             }
 
             // Clear old TOTP configurations
-            user.failedTOTPAttempts = 0;
-            // Generate a new TOTP secret directly
-            secret = speakeasy.generateSecret();
-            user.tempTwoFactorSecret = secret.base32; // only temp secret
-            user.twoFactorSecret = ""
-            user.isTwoFactorVerified = false; 
+            secret = speakeasy.generateSecret(); // secret = "456"
+            user.tempTwoFactorSecret = secret.base32; // old user who resets TOTP gets temporary TOTP
+            user.twoFactorSecret = null;
             user.isTwoFactorConfirmed = false;
+            user.isTwoFactorVerified = false; 
+            user.failedTOTPAttempts = 0;
+
         } else {
-            // Generate a new TOTP secret directly
-            secret = speakeasy.generateSecret();
-            user.twoFactorSecret = secret.base32; // Replace the old secret
+            // for new user create temporary totp
+            secret = speakeasy.generateSecret(); // secret= "123"
+            user.tempTwoFactorSecret = secret.base32; 
         }
 
         await user.save();
 
-        // Generate a QR code for the new secret
+        // For new user secret is "123", for old user who reset totp secret = "456"
         const otpauthUrl = speakeasy.otpauthURL({
             secret: secret.base32,
             label: `${user.name}`,
@@ -185,12 +183,12 @@ exports.manage2FA = async (req, res) => {
         });
 
         const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
-        const message = user.tempTwoFactorSecret ? 
-            "Please scan the QR code in your authenticator app and confirm the TOTP code.":
-            "Please scan the QR code in your authenticator app to set it up and after that confirm it.";
+        // const message = user.tempTwoFactorSecret ? 
+        //     "Please scan the QR code in your authenticator app and confirm the TOTP code.": // for new user
+        //     "Please scan the QR code in your authenticator app to set it up and after that confirm it."; // for old user who wants to reset TOTP
         
             return res.status(200).json({
-            msg: message,
+            msg: "Please scan the QR code in your authenticator app and confirm the TOTP code.",
             QRCode: qrCodeUrl,
         });
     } catch (error) {
@@ -207,67 +205,41 @@ exports.confirm2FA = async (req, res) => {
         return res.status(422).json({ errors: [{ msg: "TOTP is required to confirm 2FA setup." }] });
     }
 
-    if (user.isTwoFactorConfirmed) {
-        return res.status(400).json({ errors: [{ msg: "TOTP setup is already confirmed." }] });
-    }
+    // if (user.isTwoFactorConfirmed) {
+    //     return res.status(400).json({ errors: [{ msg: "TOTP setup is already confirmed." }] });
+    // } // new user doesnt use this
 
     try {
-        if (user.tempTwoFactorSecret) {
-            const isVerified = speakeasy.totp.verify({
-                secret: user.tempTwoFactorSecret,
-                encoding: "base32",
-                token: totp,
-            });
+        // if (user.tempTwoFactorSecret) {
+        const isVerified = speakeasy.totp.verify({
+            secret: user.tempTwoFactorSecret,
+            encoding: "base32",
+            token: totp,
+        });
 
-            if (!isVerified) {
-                return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
-            }
-
-            const permanentSecret = speakeasy.generateSecret();
-            user.twoFactorSecret = permanentSecret.base32;
-            user.tempTwoFactorSecret = "";
-            user.isTwoFactorConfirmed = true;
-            user.failedTOTPAttempts = 0;
-
-            try {
-                await user.save();
-            } catch (saveError) {
-                console.error("Error saving user during TOTP confirmation:", saveError);
-                return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
-            }
-
-            const qrCodeUrl = await generateQRCode(permanentSecret, user);
-
-            return res.status(200).json({
-                msg: "Please scan again the QR code in your authenticator app to complete TOTP reset and verify the TOTP code.",
-                QRCode: qrCodeUrl,
-            });
-        } else if (user.twoFactorSecret) {
-            const isVerified = speakeasy.totp.verify({
-                secret: user.twoFactorSecret,
-                encoding: "base32",
-                token: totp,
-            });
-
-            if (!isVerified) {
-                return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
-            }
-
-            user.isTwoFactorConfirmed = true;
-
-            try {
-                await user.save();
-            } catch (saveError) {
-                console.error("Error saving user during TOTP confirmation:", saveError);
-                return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
-            }
-
-            return res.status(200).json({
-                msg: "TOTP has been successfully confirmed.",
-            });
-        } else {
-            return res.status(400).json({ errors: [{ msg: "2FA is not set up." }] });
+        if (!isVerified) {
+            return res.status(400).json({ errors: [{ msg: "Invalid or expired TOTP code." }] });
         }
+
+        user.twoFactorSecret = user.tempTwoFactorSecret;
+        user.tempTwoFactorSecret = null;
+        user.isTwoFactorConfirmed = true;
+        user.failedTOTPAttempts = 0;
+
+        try {
+            await user.save();
+        } catch (saveError) {
+            console.error("Error saving user during TOTP confirmation:", saveError);
+            return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
+        }
+
+        return res.status(200).json({
+            msg: "TOTP is successfully confirmed",
+        });
+        
+        // } else {
+        //     return res.status(400).json({ errors: [{ msg: "2FA is not set up." }] });
+        //}
     } catch (error) {
         console.error("Error confirming TOTP:", error);
         return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
