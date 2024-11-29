@@ -20,12 +20,12 @@ const { isTwoFactorVerified } = require('../middleware/isTwoFactorVerified');
 const Invoice = require('../mongoose/models/invoice');
 
 // Helper function
-const generateTokens = (user, random) => {
-    const payload = { _id: user._id, random };
-    const accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
-    const refreshToken = jwt.sign(payload, keys2);
-    return { accessToken, refreshToken };
-};
+// const generateTokens = (user, random) => {
+//     const payload = { _id: user._id, random };
+//     const accessToken = jwt.sign(payload, keys, { expiresIn: accessTokenExpiry });
+//     const refreshToken = jwt.sign(payload, keys2);
+//     return { accessToken, refreshToken };
+// };
 
 exports.userRegister = [
     [
@@ -227,7 +227,6 @@ exports.confirm2FA = async (req, res) => {
         });
         
     } catch (error) {
-        console.error("Error confirming TOTP:", error);
         return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
     }
 };
@@ -309,23 +308,28 @@ exports.verify2FA = async (req, res) => {
         user.isTwoFactorVerified = true;
 
         // Clean up old agents and add a new one
-        user.agents = user.agents.filter(agent => agent.random !== req.random);
-        const random = crypto.randomBytes(16).toString('hex');
-        user.agents.push({ random });
+        // user.agents = user.agents.filter(agent => agent.random !== req.random);
+        // const random = crypto.randomBytes(16).toString('hex');
+        // user.agents.push({ random });
 
+        let refreshToken;
+        if (user.createRefreshToken) {
+            const payload = { _id: user._id, random: user.agents.random };
+            refreshToken = jwt.sign(payload, keys2 );
+            user.createRefreshToken = false;
+        } 
         try {
             await user.save();
         } catch (saveError) {
             return res.status(500).send({ errors: [{ msg: "Internal Server Error" }] });
         }
 
-        const { accessToken, refreshToken } = generateTokens(user, random);
+        // const { accessToken, refreshToken } = generateTokens(user, random);
 
         return res.status(200).json({
             status: true,
             msg: "TOTP verified successfully",
-            accessToken,
-            refreshToken,
+            refreshToken: refreshToken, // it will be shown only first time
             data: {
                 user: user.name,
                 email: user.email,

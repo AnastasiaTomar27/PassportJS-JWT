@@ -33,6 +33,10 @@ const UserSchema = new mongoose.Schema({
         type: Boolean,
         default: false // Default is false, meaning 2FA is not verified yet
     },
+    createRefreshToken: {
+        type: Boolean,
+        default: true
+    },
     role: {
         type: String,
         enum: ['user', 'admin'], 

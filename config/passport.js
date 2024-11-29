@@ -53,7 +53,6 @@ passport.use(
                 return done(null, false); // User not found
             }
 
-            // Check if the `random` is in `agents` (regular session) or `tempAgents` (temporary session)
             const isAccessToken = user.agents.some(agent => agent.random === jwt_payload.random);
 
             if (isAccessToken) {
